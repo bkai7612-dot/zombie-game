@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Playtest balance harness: compiles the real UZS.Core rules (no copies) and measures TTK, economy,
+       difficulty and box odds. Run with: dotnet run -c Release (from this folder) -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../Game/Assets/_Project/Scripts/Core/**/*.cs" />
+    <Compile Include="*.cs" />
+  </ItemGroup>
+</Project>
