@@ -64,7 +64,7 @@ namespace UZS.Gameplay
             }
         }
 
-        public static void Shot(Vector3 origin, Vector3 direction, int seed, WeaponId weapon, bool upgraded, bool local)
+        public static void Shot(Vector3 origin, Vector3 direction, int seed, WeaponId weapon, bool upgraded, bool aiming, bool local)
         {
             var stats = WeaponCatalog.Get(weapon);
             var fx = Instance;
@@ -72,7 +72,7 @@ namespace UZS.Gameplay
             var mat = weapon == WeaponId.PlasmaRifle || upgraded ? Palette.TracerPlasma : Palette.Tracer;
             for (int i = 0; i < stats.Pellets; i++)
             {
-                var dir = Ballistics.Spread(direction, stats.SpreadDegrees, seed, i);
+                var dir = Ballistics.Spread(direction, WeaponCatalog.Spread(weapon, aiming), seed, i);
                 var hit = Ballistics.Trace(origin, dir, stats.Range);
                 fx.Tracer(start, hit.Point, mat, weapon == WeaponId.PlasmaRifle ? 0.08f : 0.05f);
                 if (hit.Hit) fx.Impact(hit.Point, hit.Normal, hit.Hitbox != null);

@@ -104,7 +104,14 @@ namespace UZS.Gameplay
                 var match = MatchState.Instance;
                 var cc = ConnectionController.Instance;
                 bool keep = match != null && match.Phase == MatchPhase.Playing;
-                if (cc != null) cc.Ledger.Release(playerKey, keep ? Snapshot() : null);
+                var snapshot = keep ? Snapshot() : null;
+                if (cc != null && cc.Ledger.Release(playerKey, OwnerClientId, snapshot) == ReleaseResult.TakenOver && snapshot != null)
+                {
+                    // The same player already reconnected on a new connection: hand them their progress.
+                    if (cc.Ledger.TryGetHolder(playerKey, out var holder))
+                        foreach (var p in All)
+                            if (p.OwnerClientId == holder) p.ServerRestore(snapshot);
+                }
                 if (match != null) match.ServerOnPlayerLeft();
             }
         }
@@ -116,7 +123,7 @@ namespace UZS.Gameplay
             if (cc != null) cc.ServerTakePayload(OwnerClientId, out payload);
             payload = payload ?? new ConnectionPayload { PlayerKey = "client" + OwnerClientId };
 
-            playerKey = cc != null ? cc.Ledger.Claim(payload.PlayerKey) : payload.PlayerKey;
+            playerKey = payload.PlayerKey;
             displayName.Value = new FixedString64Bytes(payload.DisplayName);
             characterId.Value = CharacterCatalog.Clamp(payload.CharacterId);
 
@@ -125,8 +132,17 @@ namespace UZS.Gameplay
             {
                 // Late join or reconnect: restore a snapshot exactly once, otherwise start fresh.
                 if (cc != null && cc.Ledger.TryConsume(playerKey, out var snap)) ServerRestore(snap);
-                else ServerResetForMatch();
+                else ServerResetForMatch(LateJoinRules.StartingPoints(match.Round));
                 match.ServerOnPlayerJoined(this);
+            }
+
+            // Claim the identity last: if an older connection with the same key is still around (the player
+            // reconnected before the host noticed the drop), disconnect it. Its despawn hands its progress to us.
+            if (cc != null)
+            {
+                var stale = cc.Ledger.Claim(playerKey, OwnerClientId);
+                if (stale.HasValue && NetworkManager != null)
+                    NetworkManager.DisconnectClient(stale.Value, "You connected again from another game window.");
             }
         }
 
@@ -134,14 +150,14 @@ namespace UZS.Gameplay
 
         public void ServerBeginMatch(int spawnIndex)
         {
-            ServerResetForMatch();
+            ServerResetForMatch(GameInfo.StartingPoints);
             var s = MapCatalog.PlayerSpawns[spawnIndex % MapCatalog.PlayerSpawns.Length];
             ServerTeleport(Geo.V(s) + Vector3.up * 0.2f, 90f);
         }
 
-        private void ServerResetForMatch()
+        private void ServerResetForMatch(int startingPoints)
         {
-            points.Value = GameInfo.StartingPoints;
+            points.Value = startingPoints;
             perks.Value = PerkId.None;
             maxHealth.Value = HealthRules.BaseMaxHealth;
             health.Value = HealthRules.BaseMaxHealth;
@@ -149,7 +165,7 @@ namespace UZS.Gameplay
             Weapons.ServerResetLoadout();
         }
 
-        private void ServerRestore(PlayerSnapshot s)
+        public void ServerRestore(PlayerSnapshot s)
         {
             points.Value = Mathf.Max(0, s.Points);
             perks.Value = s.Perks;
@@ -195,16 +211,18 @@ namespace UZS.Gameplay
             PerkFxRpc();
         }
 
+        private static int Multiplier => MatchState.Instance != null ? MatchState.Instance.PointsMultiplier : 1;
+
         public void ServerRecordHit()
         {
-            ServerAddPoints(PointsRules.HitReward);
+            ServerAddPoints(PointsRules.HitReward * Multiplier);
         }
 
         public void ServerRecordKill(bool headshot, bool melee)
         {
             kills.Value++;
             if (headshot) headshots.Value++;
-            ServerAddPoints(PointsRules.KillRewardFor(headshot, melee));
+            ServerAddPoints(PointsRules.KillRewardFor(headshot, melee) * Multiplier);
         }
 
         public void ServerTakeDamage(float amount, Vector3 from)

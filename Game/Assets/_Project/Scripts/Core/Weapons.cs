@@ -40,11 +40,13 @@ namespace UZS.Core
         /// <summary>Wall-buy price. 0 means the weapon is not sold on walls (starter or mystery-box only).</summary>
         public int WallPrice;
         public bool InMysteryBox;
+        /// <summary>Ammo price for weapons that are not sold on walls (starter / box-only).</summary>
+        public int BoxAmmoPrice = 250;
         /// <summary>Damage falls off linearly to this fraction at max range.</summary>
         public float MinRangeDamageFraction;
 
         public float SecondsBetweenShots => 1f / RoundsPerSecond;
-        public int AmmoPrice => Math.Max(250, WallPrice / 2);
+        public int AmmoPrice => WallPrice > 0 ? Math.Max(250, WallPrice / 2) : BoxAmmoPrice;
     }
 
     public static class WeaponCatalog
@@ -52,7 +54,11 @@ namespace UZS.Core
         public const float UpgradeDamageMultiplier = 2f;
         public const float UpgradeMagazineMultiplier = 1.5f;
         public const float UpgradeReserveMultiplier = 1.5f;
-        public const int UpgradedAmmoPrice = 2500;
+        /// <summary>Upgraded weapons cost this many times their normal refill price (at least <see cref="UpgradedAmmoMinimum"/>).</summary>
+        public const int UpgradedAmmoMultiplier = 2;
+        public const int UpgradedAmmoMinimum = 1000;
+        /// <summary>Aiming down sights tightens spread by this factor.</summary>
+        public const float AimSpreadMultiplier = 0.5f;
 
         private static readonly Dictionary<WeaponId, WeaponStats> Stats = new Dictionary<WeaponId, WeaponStats>
         {
@@ -73,7 +79,7 @@ namespace UZS.Core
             [WeaponId.Shotgun] = new WeaponStats
             {
                 Id = WeaponId.Shotgun, DisplayName = "Ranch Pump Shotgun", UpgradedName = "Barn Burner",
-                Mode = FireMode.SemiAuto, Damage = 22f, HeadshotMultiplier = 1.5f, Pellets = 8, SpreadDegrees = 6.5f,
+                Mode = FireMode.SemiAuto, Damage = 26f, HeadshotMultiplier = 1.5f, Pellets = 8, SpreadDegrees = 3.5f,
                 Range = 22f, RoundsPerSecond = 1.4f, MagazineSize = 6, MaxReserve = 48, ReloadSeconds = 3.0f,
                 WallPrice = 1200, InMysteryBox = true, MinRangeDamageFraction = 0.25f,
             },
@@ -96,7 +102,7 @@ namespace UZS.Core
                 Id = WeaponId.PlasmaRifle, DisplayName = "XR-1 Plasma Rifle", UpgradedName = "Starbreaker",
                 Mode = FireMode.FullAuto, Damage = 120f, HeadshotMultiplier = 1.5f, Pellets = 1, SpreadDegrees = 0.8f,
                 Range = 70f, RoundsPerSecond = 6f, MagazineSize = 24, MaxReserve = 144, ReloadSeconds = 2.4f,
-                WallPrice = 0, InMysteryBox = true, MinRangeDamageFraction = 1f,
+                WallPrice = 0, InMysteryBox = true, MinRangeDamageFraction = 1f, BoxAmmoPrice = 1500,
             },
         };
 
@@ -121,6 +127,20 @@ namespace UZS.Core
         {
             var s = Get(id);
             return upgraded ? (int)Math.Ceiling(s.MaxReserve * UpgradeReserveMultiplier) : s.MaxReserve;
+        }
+
+        /// <summary>Price to refill one slot (wall or crate); upgraded weapons always cost the upgraded price.</summary>
+        public static int AmmoPriceFor(WeaponSlot slot)
+        {
+            if (slot.IsEmpty) return 0;
+            int normal = Get(slot.Weapon).AmmoPrice;
+            return slot.Upgraded ? Math.Max(UpgradedAmmoMinimum, normal * UpgradedAmmoMultiplier) : normal;
+        }
+
+        public static float Spread(WeaponId id, bool aiming)
+        {
+            float s = Get(id).SpreadDegrees;
+            return aiming ? s * AimSpreadMultiplier : s;
         }
 
         public static string NameOf(WeaponId id, bool upgraded)

@@ -68,13 +68,26 @@ namespace UZS.UI
             {
                 string t = match.EscapeSecondsLeft > 0.01f
                     ? $"SAUCER LAUNCH IN {Mathf.CeilToInt(match.EscapeSecondsLeft)}s  -  HOLD OUT"
-                    : "SAUCER READY - GET IN THE GREEN CIRCLE (Hangar)";
+                    : match.BoardingSecondsLeft >= 0f
+                        ? $"BOARDING - LIFT-OFF IN {Mathf.CeilToInt(match.BoardingSecondsLeft)}s - EVERYONE INTO THE GREEN CIRCLE"
+                        : "SAUCER READY - EVERYONE INTO THE GREEN CIRCLE (Hangar)";
+                if (match.BoardingSecondsLeft >= 0f && MatchState.IsAboard(me)) t += "  -  YOU'RE ABOARD";
                 UISkin.Shadowed(new Rect(0, 30, w, 50), t, UISkin.Prompt, UISkin.Alien);
             }
             else if (match.EscapeFunded > 0)
             {
                 UISkin.Shadowed(new Rect(0, 30, w, 40), $"Saucer fuel: {match.EscapeFunded} / {match.EscapeCost}", UISkin.Prompt, UISkin.Alien);
             }
+
+            // Active power-ups.
+            float py = 80;
+            if (match.InstaKillLeft > 0f)
+            {
+                UISkin.Shadowed(new Rect(0, py, w, 36), $"INSTA-KILL  {Mathf.CeilToInt(match.InstaKillLeft)}", UISkin.Prompt, new Color(1f, 0.35f, 0.3f));
+                py += 36;
+            }
+            if (match.DoublePointsLeft > 0f)
+                UISkin.Shadowed(new Rect(0, py, w, 36), $"DOUBLE POINTS  {Mathf.CeilToInt(match.DoublePointsLeft)}", UISkin.Prompt, new Color(0.4f, 1f, 0.55f));
 
             DrawTeam(w, me);
             DrawSelf(w, h, me);
@@ -93,10 +106,11 @@ namespace UZS.UI
             // Downed / dead state.
             if (me.Life == LifeState.Downed)
             {
-                UISkin.Shadowed(new Rect(0, h * 0.35f, w, 70), "YOU ARE DOWN", UISkin.Huge, UISkin.Accent);
-                string hint = match.IsSinglePlayer ? string.Empty : $"Bleeding out in {Mathf.CeilToInt(me.BleedoutLeft)}s - a teammate can revive you";
-                UISkin.Shadowed(new Rect(0, h * 0.35f + 80, w, 40), hint, UISkin.Center, Color.white);
-                if (me.ReviveProgress > 0f) UISkin.Bar(new Rect(w / 2 - 250, h * 0.35f + 130, 500, 16), me.ReviveProgress, UISkin.Alien, new Color(0, 0, 0, 0.6f));
+                // Kept below the announcement feed (0.14h-0.36h) so the two never overlap.
+                UISkin.Shadowed(new Rect(0, h * 0.40f, w, 70), "YOU ARE DOWN", UISkin.Huge, UISkin.Accent);
+                string hint = match.IsSinglePlayer ? string.Empty : $"Bleeding out in {Mathf.CeilToInt(me.BleedoutLeft)}s - you can still shoot while a teammate revives you";
+                UISkin.Shadowed(new Rect(0, h * 0.40f + 80, w, 40), hint, UISkin.Center, Color.white);
+                if (me.ReviveProgress > 0f) UISkin.Bar(new Rect(w / 2 - 250, h * 0.40f + 130, 500, 16), me.ReviveProgress, UISkin.Alien, new Color(0, 0, 0, 0.6f));
             }
             else if (me.Life == LifeState.Dead && !match.IsOver)
             {
@@ -105,7 +119,7 @@ namespace UZS.UI
             }
 
             // Announcement feed.
-            float fy = h * 0.27f;
+            float fy = h * 0.14f;
             foreach (var item in feed)
             {
                 UISkin.Shadowed(new Rect(0, fy, w, 40), item.text, item.major ? UISkin.Prompt : UISkin.Center, item.major ? UISkin.Gold : Color.white);
@@ -114,9 +128,10 @@ namespace UZS.UI
 
             if (KeyboardMouseInput.Instance.ScoreboardHeld && !match.IsOver)
             {
-                var r = new Rect(w / 2 - 700, 200, 1400, 80 + PlayerAvatar.All.Count * 48);
+                float sw = Mathf.Min(1400f, w - 40f);
+                var r = new Rect(w / 2 - sw / 2, 200, sw, 80 + PlayerAvatar.All.Count * 48);
                 GUI.Box(r, GUIContent.none, UISkin.Panel);
-                ScoreboardRows(r);
+                ScoreboardRows(r, match);
             }
         }
 
@@ -192,7 +207,7 @@ namespace UZS.UI
                 UISkin.Shadowed(new Rect(w - 620, h - 46, 590, 36), WeaponCatalog.NameOf(active.Weapon, active.Upgraded) + (weapons.IsReloading ? "  -  reloading" : string.Empty), label, nameColor);
                 var other = weapons.View[1 - weapons.ActiveSlot];
                 if (!other.IsEmpty)
-                    UISkin.Shadowed(new Rect(w - 620, h - 180, 590, 30), "[Q] " + WeaponCatalog.NameOf(other.Weapon, other.Upgraded), label, UISkin.Dim);
+                    UISkin.Shadowed(new Rect(w - 620, h - 180, 590, 30), $"[{GameSettings.Current.KeySwap}] " + WeaponCatalog.NameOf(other.Weapon, other.Upgraded), label, UISkin.Dim);
                 label.alignment = la;
                 if (mag == 0 && active.Reserve > 0 && !weapons.IsReloading)
                     UISkin.Shadowed(new Rect(0, h * 0.56f, w, 40), $"Press [{GameSettings.Current.KeyReload}] to reload", UISkin.Center, UISkin.Gold);
@@ -201,7 +216,7 @@ namespace UZS.UI
 
         private void DrawCrosshair(float w, float h, PlayerAvatar me)
         {
-            if (me.Life != LifeState.Alive) return;
+            if (me.Life != LifeState.Alive && me.Life != LifeState.Downed) return;
             float cx = w / 2, cy = h / 2;
             var c = new Color(1f, 1f, 1f, 0.85f);
             float gap = KeyboardMouseInput.Instance.AimHeld ? 4f : 10f;

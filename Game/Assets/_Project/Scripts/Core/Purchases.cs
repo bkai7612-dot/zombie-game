@@ -1,3 +1,5 @@
+using System;
+
 namespace UZS.Core
 {
     public enum InteractableKind : byte
@@ -46,7 +48,8 @@ namespace UZS.Core
     /// </summary>
     public static class PurchaseRules
     {
-        public const int AmmoCratePrice = 600;
+        /// <summary>Minimum crate price; the crate charges each non-full slot its normal refill price.</summary>
+        public const int AmmoCrateMinimum = 600;
         public const int UpgradePrice = 5000;
 
         public static PurchaseQuote WallBuy(Loadout loadout, WeaponId weapon)
@@ -56,8 +59,7 @@ namespace UZS.Core
             int slot = loadout.SlotOf(weapon);
             if (slot < 0) return PurchaseQuote.Of(QuoteKind.NewWeapon, stats.WallPrice);
             if (loadout.IsFull(slot)) return PurchaseQuote.No("Ammo full");
-            int price = loadout[slot].Upgraded ? WeaponCatalog.UpgradedAmmoPrice : stats.AmmoPrice;
-            return PurchaseQuote.Of(QuoteKind.Ammo, price);
+            return PurchaseQuote.Of(QuoteKind.Ammo, WeaponCatalog.AmmoPriceFor(loadout[slot]));
         }
 
         public static PurchaseQuote Door(int doorId, ulong unlockedMask)
@@ -73,11 +75,17 @@ namespace UZS.Core
             return PurchaseQuote.Of(QuoteKind.Perk, PerkCatalog.Price(perk));
         }
 
+        /// <summary>
+        /// Refills every weapon in one go. It charges the same per-slot prices as the walls (so upgraded guns are
+        /// never cheaper here) and is mainly the only way to restock the starter pistol and box weapons.
+        /// </summary>
         public static PurchaseQuote AmmoCrate(Loadout loadout)
         {
+            int total = 0;
             for (int i = 0; i < Loadout.SlotCount; i++)
-                if (!loadout.IsFull(i)) return PurchaseQuote.Of(QuoteKind.AmmoCrate, AmmoCratePrice);
-            return PurchaseQuote.No("Ammo full");
+                if (!loadout.IsFull(i)) total += WeaponCatalog.AmmoPriceFor(loadout[i]);
+            if (total == 0) return PurchaseQuote.No("Ammo full");
+            return PurchaseQuote.Of(QuoteKind.AmmoCrate, Math.Max(AmmoCrateMinimum, total));
         }
 
         public static PurchaseQuote Upgrade(Loadout loadout)

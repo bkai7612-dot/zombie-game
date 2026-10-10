@@ -113,39 +113,38 @@ namespace UZS.Gameplay
             match.ServerSetRound(currentRound, remainingToSpawn + ZombieAgent.AliveCount, Mathf.Max(0f, intermission));
         }
 
-        private Vector3 RespawnPointFor(int index)
-        {
-            // Prefer appearing next to a living teammate; fall back to the start street.
-            foreach (var p in PlayerAvatar.All)
-                if (p.Life == LifeState.Alive) return p.transform.position + new Vector3(1.2f, 0.2f, 0f);
-            var s = MapCatalog.PlayerSpawns[index % MapCatalog.PlayerSpawns.Length];
-            return Geo.V(s) + Vector3.up * 0.2f;
-        }
+        private static Vector3 RespawnPointFor(int index) => SpawnSpot.NearLivingTeammate(index);
 
         private bool TrySpawn()
         {
             var content = GameContent.Instance;
             if (content == null || content.ZombiePrefab == null) return false;
 
-            var active = MapCatalog.ActiveZones(match.DoorMask);
-            var scored = new List<KeyValuePair<float, Vector3>>();
-            for (int z = 0; z < MapCatalog.Zones.Length; z++)
+            var players = new List<V3>();
+            var eyes = new List<Vector3>();
+            foreach (var p in PlayerAvatar.All)
             {
-                if (!active[z]) continue;
-                foreach (var sp in MapCatalog.Zones[z].ZombieSpawns)
-                {
-                    var pos = Geo.V(sp);
-                    float nearest = NearestPlayerDistance(pos);
-                    if (nearest < 6f) continue; // never pop in right next to someone
-                    scored.Add(new KeyValuePair<float, Vector3>(nearest, pos));
-                }
+                if (p.Life != LifeState.Alive && p.Life != LifeState.Downed) continue;
+                var pos = p.transform.position;
+                players.Add(new V3(pos.x, pos.y, pos.z));
+                eyes.Add(p.EyePosition);
             }
-            if (scored.Count == 0) return false;
 
-            // Favour the closest few spawn points so pressure stays on the players wherever they are.
-            scored.Sort((a, b) => a.Key.CompareTo(b.Key));
-            int pickFrom = Mathf.Min(4, scored.Count);
-            var point = scored[rng.Next(pickFrom)].Value;
+            // Zone-aware ranking (door graph, not straight lines), then skip close points a player can see,
+            // so zombies don't pop into existence in plain view.
+            var ranked = SpawnPlanner.Rank(players, match.DoorMask, ZombieRules.MinSpawnDistance);
+            var usable = new List<Vector3>();
+            foreach (var c in ranked)
+            {
+                var pos = Geo.V(c.Position);
+                if (c.Distance < ZombieRules.VisibleSpawnCheckDistance && SeenByAnyone(pos, eyes)) continue;
+                usable.Add(pos);
+                if (usable.Count >= 4) break;
+            }
+            if (usable.Count == 0 && ranked.Count > 0) usable.Add(Geo.V(ranked[0].Position));
+            if (usable.Count == 0) return false;
+
+            var point = usable[rng.Next(usable.Count)];
             point += new Vector3((float)(rng.NextDouble() - 0.5) * 1.5f, 0f, (float)(rng.NextDouble() - 0.5) * 1.5f);
 
             var go = Instantiate(content.ZombiePrefab, point, Quaternion.Euler(0f, rng.Next(360), 0f));
@@ -156,15 +155,11 @@ namespace UZS.Gameplay
             return true;
         }
 
-        private static float NearestPlayerDistance(Vector3 pos)
+        private static bool SeenByAnyone(Vector3 spawn, List<Vector3> eyes)
         {
-            float best = float.MaxValue;
-            foreach (var p in PlayerAvatar.All)
-            {
-                if (p.Life != LifeState.Alive && p.Life != LifeState.Downed) continue;
-                best = Mathf.Min(best, Vector3.Distance(pos, p.transform.position));
-            }
-            return best;
+            foreach (var eye in eyes)
+                if (Ballistics.ClearLine(eye, spawn + Vector3.up * 1.2f)) return true;
+            return false;
         }
     }
 }

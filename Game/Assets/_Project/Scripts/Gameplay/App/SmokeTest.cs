@@ -117,7 +117,10 @@ namespace UZS.Gameplay
             me.ServerAddPoints(match.EscapeCost);
             me.Motor.Teleport(Geo.V(console.Position) + new Vector3(0f, 0.1f, -1.2f), 0f);
             yield return null;
-            Check(me.Interactor.ServerTryInteract(console.Id, out _) && match.EscapeActive, "UFO escape funded and countdown started");
+            Check(me.Interactor.ServerTryInteract(console.Id, out _) && match.EscapeFunded >= match.EscapeCost, "UFO escape fully funded");
+            yield return null;
+            yield return null;
+            Check(match.EscapeActive && match.EscapeSecondsLeft > 0f, "launch countdown started");
 
             // Defeat: the only player goes down.
             me.ServerTakeDamage(1e6f, me.transform.position);

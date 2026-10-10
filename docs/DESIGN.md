@@ -11,14 +11,25 @@ You start on Main Street with 500 points and a pistol. Zombies come in rounds. H
 | | Formula |
 |---|---|
 | Zombies per round | `ceil((4 + 2.2r + 0.09r²) × (1 + 0.5 × (players − 1)))`, capped at 300 |
-| Zombie health | 120 + 90 per round up to round 9, then ×1.1 per round, frozen after round 55 (keeps endless mode finite) |
+| Zombie health | 120 + 90 per round up to round 9, then ×1.1 per round to round 25, then ×1.04 per round, frozen after round 55 (about 12,500 HP, so endless mode stays killable) |
 | Max alive | 18 + 4 per extra player (cap 30) |
 | Spawn interval | 2.2 s × 0.95^(r−1), minimum 0.35 s |
 | Speed mix | walkers only for the first rounds; runners from round 3; sprinters from round 7 (up to 70%) |
-| Zombie hit | 40 damage (50 from round 15); 0.55 s wind-up, 1.3 s cooldown |
+| Zombie hit | 40 damage (50 from round 15); 0.55 s wind-up, 1.3 s cooldown. Needs a clear line to the player (no hits through walls or fences) and the player within 1.9 m above or 0.8 m below the zombie's feet (car roofs aren't safe). |
 | Intermission | 10 s (5 s before round 1) |
 
-Zombies only spawn in zones the team has opened, at the 4 spawn points closest to the players, and never within 6 m of anyone. A zombie that's stuck for 14 s while far from every player gets recycled.
+Zombies only spawn in zones the team has opened. Spawn points are ranked by the door graph, not straight-line distance: first the zone a player is in, then zones one door away, closest first. So the hangar under Main Street never feeds street rounds, and the escape hold-out is fed from the hangar and lab. Points closer than 10 m to anyone are skipped, and so are points within 25 m that a player can see. New zombies climb out of the ground for 1.2 s before they move. A zombie that's stuck for 14 s while far from every player, or that can't path to its target for 10 s, is recycled.
+
+### Power-ups
+
+Each kill has a 3% chance to drop one (at most 4 per round, one on the ground at a time, gone after 25 s). Walk over it to collect it for the whole team:
+
+| Drop | Effect |
+|---|---|
+| Max Ammo | Refills every weapon of every standing or downed player |
+| Insta-Kill | Every hit kills, for 20 s |
+| Double Points | Hit and kill points ×2, for 20 s |
+| Nuke | Kills every zombie on the map (no kill credit, no drops) and gives each player 400 points |
 
 ## Weapons (`WeaponCatalog`)
 
@@ -26,13 +37,15 @@ Zombies only spawn in zones the team has opened, at the 4 spawn points closest t
 |---|---|---|---|---|---|---|
 | M9 Service Pistol | semi | 34 | 6/s | 8/64 | starter | Moonlight Judge |
 | K-9 Compact SMG | auto | 26 | 13/s | 30/180 | 1000 (Main Street) | Hive Swarm |
-| Ranch Pump Shotgun | semi, 8 pellets | 22 ×8 | 1.4/s | 6/48 | 1200 (Back Alley) | Barn Burner |
+| Ranch Pump Shotgun | semi, 8 pellets (3.5° spread) | 26 ×8 | 1.4/s | 6/48 | 1200 (Back Alley) | Barn Burner |
 | AR-7 Patrol Rifle | auto | 45 | 9.5/s | 30/210 | 1600 (Checkpoint) | Checkpoint Zero |
 | DMR-40 Marksman | semi | 150 | 2.5/s | 10/60 | 2000 (Research Lab) | Long Night |
 | XR-1 Plasma Rifle | auto | 120 | 6/s | 24/144 | Supply Drop only | Starbreaker |
 
 - Damage falls off with distance, and headshots get a per-weapon multiplier (1.5× to 3×).
-- Buying a weapon you already own refills its ammo for half the wall price (minimum 250). For upgraded weapons the refill costs 2500.
+- Buying a weapon you already own refills its ammo for half the wall price (minimum 250). Upgraded weapons cost 2× their normal refill (minimum 1000). The pistol refills for 250 and the plasma rifle for 1500.
+- **Ammo crates** refill every weapon at once and charge the same per-slot prices as the walls (minimum 600). They're mainly for the pistol and the plasma rifle, which have no wall.
+- Aiming down sights halves weapon spread.
 - **Xeno-Forge** (upgrade bench, 5000): doubles damage, gives 1.5× magazine and reserve, and adds a purple tint.
 - **Knife**: 150 damage, 0.65 s cooldown, always available.
 - You carry two weapons. Buying a third replaces the one in your hands.
@@ -76,15 +89,17 @@ You lose all perks when you go down.
 
 ## Supply Drop (mystery box)
 
-It costs 950. It spins for 3 s, then offers a weapon you don't already own to the player who paid, for 10 s. The plasma rifle has a quarter of the weight of the other weapons. After at least 4 uses since its last move, each roll has a 20% chance of relocation instead: the player is refunded and the crate moves to one of the other 3 locations.
+It costs 950. It spins for 3 s, then offers a weapon you don't already own to the player who paid, for 10 s. The plasma rifle has half the weight of the other weapons. After at least 4 uses since its last move, each roll has a 20% chance of relocation instead: the player is refunded and the crate moves to another location **in a zone the team has already opened**. If no other location is open, it never relocates.
 
 ## Escape ending
 
-At the **Saucer Launch Console** in the hangar, players contribute points (all they have, up to what's still needed). It costs 12000 for one player, plus 6000 for each extra player. Once fully funded, a 60 s countdown starts while the hatch opens and the saucer powers up. After that, every living player inside the green boarding circle escapes, and the match ends in victory with stats. Players outside the circle are left behind.
+At the **Saucer Launch Console** in the hangar, players contribute points (all they have, up to what's still needed). It costs 10,000 for one player, plus 5,000 for each extra player. The cost is based on the **most players who have been in the match**, so it never drops when someone leaves. That means funding can't get stuck, and nobody can quit, fund cheaply and rejoin.
+
+Once fully funded, a 60 s hold-out countdown starts while the hatch opens and the saucer powers up. Then boarding opens. The saucer lifts off as soon as every living player is inside the green circle, or 15 s after the first player boards. Everyone inside escapes; anyone outside is shown as "Left behind", and their end screen says so.
 
 ## Co-op rules
 
-- At 0 health you go **down**: you can't shoot, you crawl, and you bleed out after 30 s. A teammate revives you by holding F for 3 s within 2.4 m, and you come back with 50 health.
+- At 0 health you go **down**: you crawl and you bleed out after 30 s, but you can still shoot and reload (last stand). A teammate revives you by holding F for 3 s within 2.4 m, and you come back with 50 health.
 - If you bleed out you're **dead** and spectate (click to switch who you watch). You respawn at the end of the round with a pistol and keep your points.
 - If nobody is left standing, the game is over. In single player, going down ends the game.
 - Health regenerates 25 per second after 4 s without taking damage.
@@ -100,5 +115,22 @@ The brief stopped at "Opening" in the door section. These were chosen as reasona
 - Door opening animation and timing.
 - The exact weapon stats and the 4 perks.
 - Escape cost scales with player count, uses a 60 s hold-out, and requires standing in the boarding circle.
-- Downed players can't shoot.
 - No host migration.
+
+## Late joiners and reconnects
+
+- A player who joins a match in progress appears next to a living teammate (on a free, walkable spot). They start with catch-up points: 500 + 750 per round already played, capped at 10,000.
+- Respawns at the end of a round use the same safe-spot search, so nobody lands inside a car or wall.
+- If you reconnect before the host notices your old connection dropped, the old connection is closed and its progress is handed to the new one.
+
+## Balance (from `tools/playtest/Sim`, 60% hits, 30% headshots)
+
+| Milestone | Solo | 4 players |
+|---|---|---|
+| SMG | round 2 | round 2 |
+| Upgraded AR | round 8 | round 10 |
+| All doors and perks | round 10 | round 12 |
+| Escape funded | round 13 (~16 min) | round 14 (~28 min) |
+| Horde outgrows best gear (no power-ups) | round 15 | round 25 |
+
+Power-ups aren't included in those numbers. They make late rounds noticeably easier.

@@ -112,6 +112,30 @@ namespace UZS.Tests
         }
 
         [Test]
+        public void AmmoCrateChargesPerSlotAndNeverUndercutsUpgradedPrice()
+        {
+            var l = Loadout.CreateStarter();
+            Assert.IsFalse(PurchaseRules.AmmoCrate(l).Available, "Full");
+            l.Give(WeaponId.AssaultRifle, false);
+            l.Upgrade(1);
+            l.TryConsumeRound(1);
+            var q = PurchaseRules.AmmoCrate(l);
+            int upgradedAr = 2 * WeaponCatalog.Get(WeaponId.AssaultRifle).AmmoPrice;
+            Assert.AreEqual(upgradedAr, q.Cost, "Upgraded slot costs the upgraded price at the crate too");
+            Assert.AreEqual(q.Cost, PurchaseRules.WallBuy(l, WeaponId.AssaultRifle).Cost, "Crate and wall agree");
+            l.TryConsumeRound(0);
+            Assert.AreEqual(upgradedAr + WeaponCatalog.Get(WeaponId.Pistol).AmmoPrice, PurchaseRules.AmmoCrate(l).Cost);
+            Assert.AreEqual(WeaponCatalog.UpgradedAmmoMinimum, WeaponCatalog.AmmoPriceFor(new WeaponSlot { Weapon = WeaponId.Pistol, Upgraded = true }));
+            Assert.GreaterOrEqual(WeaponCatalog.Get(WeaponId.PlasmaRifle).AmmoPrice, 1000, "Box-only weapons are not cheap to refill");
+        }
+
+        [Test]
+        public void AimingTightensSpread()
+        {
+            Assert.Less(WeaponCatalog.Spread(WeaponId.Shotgun, true), WeaponCatalog.Spread(WeaponId.Shotgun, false));
+        }
+
+        [Test]
         public void StarterAndBoxOnlyWeaponsAreNotWallBuyable()
         {
             var l = Loadout.CreateStarter();
@@ -216,6 +240,32 @@ namespace UZS.Tests
         }
 
         [Test]
+        public void SpawnsFollowTheDoorGraphNotStraightLines()
+        {
+            ulong all = 0;
+            foreach (var d in MapCatalog.Doors) all |= 1UL << d.Id;
+            var console = MapCatalog.FindStation(MapCatalog.EscapeConsoleInteractableId).Position;
+            var ranked = SpawnPlanner.Rank(new[] { console }, all, ZombieRules.MinSpawnDistance);
+            Assert.Greater(ranked.Count, 0);
+            for (int i = 0; i < Math.Min(4, ranked.Count); i++)
+                Assert.That(ranked[i].Zone == 4 || ranked[i].Zone == 3, $"Hangar defence spawns come from the hangar or lab, got zone {ranked[i].Zone}");
+            Assert.AreEqual(4, ranked[0].Zone);
+
+            var street = MapCatalog.PlayerSpawns[0];
+            ranked = SpawnPlanner.Rank(new[] { street }, all, ZombieRules.MinSpawnDistance);
+            foreach (var c in ranked) Assert.AreNotEqual(4, c.Zone, "Street rounds never pull zombies from the hangar");
+            foreach (var c in ranked) Assert.GreaterOrEqual(c.Distance, ZombieRules.MinSpawnDistance);
+        }
+
+        [Test]
+        public void SpawnsOnlyInOpenedZones()
+        {
+            var ranked = SpawnPlanner.Rank(new[] { MapCatalog.PlayerSpawns[0] }, 0UL, ZombieRules.MinSpawnDistance);
+            Assert.Greater(ranked.Count, 0);
+            foreach (var c in ranked) Assert.AreEqual(0, c.Zone);
+        }
+
+        [Test]
         public void EscapeConsoleIsInHangar()
         {
             var console = MapCatalog.FindStation(MapCatalog.EscapeConsoleInteractableId);
@@ -253,6 +303,7 @@ namespace UZS.Tests
                 prev = hp;
             }
             Assert.AreEqual(RoundRules.ZombieHealth(RoundRules.HealthCapRound), RoundRules.ZombieHealth(500));
+            Assert.Less(RoundRules.ZombieHealth(500), 15000f, "Endless rounds stay killable");
         }
 
         [Test]
@@ -288,7 +339,7 @@ namespace UZS.Tests
         }
 
         [Test]
-        public void BoxEventuallyRelocatesAndPicksDifferentLocation()
+        public void BoxEventuallyRelocatesOnlyIntoOpenedZones()
         {
             var rng = new Random(7);
             var l = Loadout.CreateStarter();
@@ -296,15 +347,48 @@ namespace UZS.Tests
             for (int i = 0; i < 200 && !relocated; i++)
                 relocated = MysteryBoxRules.Roll(rng, l, MysteryBoxRules.MinUsesBeforeMove) == WeaponId.None;
             Assert.IsTrue(relocated);
+
+            var onlyStreet = MapCatalog.ActiveZones(0UL);
+            Assert.IsFalse(MysteryBoxRules.CanRelocate(0, MapCatalog.BoxLocations, onlyStreet), "Nowhere to go with only the street open");
+            Assert.AreEqual(0, MysteryBoxRules.NextLocation(rng, 0, MapCatalog.BoxLocations, onlyStreet));
+            for (int i = 0; i < 200; i++)
+                Assert.AreNotEqual(WeaponId.None, MysteryBoxRules.Roll(rng, l, 99, canRelocate: false), "Box never relocates when it cannot");
+
+            var streetAndCheckpoint = MapCatalog.ActiveZones(1UL << 1);
             for (int i = 0; i < 100; i++)
-                Assert.AreNotEqual(1, MysteryBoxRules.NextLocation(rng, 1, 3));
+                Assert.AreEqual(1, MysteryBoxRules.NextLocation(rng, 0, MapCatalog.BoxLocations, streetAndCheckpoint), "Only the checkpoint location is open");
+        }
+
+        [Test]
+        public void EscapeCostNeverDropsWhenPlayersLeave()
+        {
+            var e = new EscapeState();
+            e.NotePlayers(2);
+            Assert.AreEqual(EscapeRules.CostFor(2), e.Cost);
+            Assert.AreEqual(12000, e.Contribute(12000));
+            e.NotePlayers(1); // someone left
+            Assert.AreEqual(EscapeRules.CostFor(2), e.Cost, "Cost is based on the peak player count");
+            Assert.IsFalse(e.TryActivate());
+            Assert.AreEqual(EscapeRules.CostFor(2) - 12000, e.Contribute(99999));
+            Assert.IsTrue(e.TryActivate());
+            Assert.IsFalse(e.TryActivate(), "Activates once");
+            Assert.AreEqual(0, e.Contribute(1000), "No contributions after launch");
+        }
+
+        [Test]
+        public void BoardingWaitsForTeammatesUpToTheWindow()
+        {
+            Assert.IsFalse(EscapeRules.ShouldLaunch(2, 0, 100f), "Nobody aboard");
+            Assert.IsFalse(EscapeRules.ShouldLaunch(3, 1, 5f), "Others still running in");
+            Assert.IsTrue(EscapeRules.ShouldLaunch(3, 3, 0f), "Everyone alive is aboard");
+            Assert.IsTrue(EscapeRules.ShouldLaunch(3, 1, EscapeRules.BoardingWindowSeconds), "Window expired");
         }
 
         [Test]
         public void EscapeContributionNeverExceedsRemainingOrPoints()
         {
             int cost = EscapeRules.CostFor(2);
-            Assert.AreEqual(18000, cost);
+            Assert.AreEqual(15000, cost);
             Assert.AreEqual(500, EscapeRules.Contribution(500, 0, cost));
             Assert.AreEqual(1000, EscapeRules.Contribution(5000, cost - 1000, cost));
             Assert.AreEqual(0, EscapeRules.Contribution(5000, cost, cost));
@@ -355,19 +439,26 @@ namespace UZS.Tests
         public void ReconnectSnapshotIsConsumedOnce()
         {
             var ledger = new ReconnectLedger();
-            string key = ledger.Claim("player");
-            ledger.Release(key, new PlayerSnapshot { Points = 4200 });
+            Assert.IsNull(ledger.Claim("player", 5));
+            Assert.AreEqual(ReleaseResult.Stored, ledger.Release("player", 5, new PlayerSnapshot { Points = 4200 }));
             Assert.IsTrue(ledger.TryConsume("player", out var snap));
             Assert.AreEqual(4200, snap.Points);
             Assert.IsFalse(ledger.TryConsume("player", out _), "Second reconnect must not duplicate progress");
         }
 
         [Test]
-        public void DuplicateKeysGetUniqueSuffix()
+        public void FastReconnectTakesOverStaleConnection()
         {
             var ledger = new ReconnectLedger();
-            Assert.AreEqual("same", ledger.Claim("same"));
-            Assert.AreEqual("same#2", ledger.Claim("same"));
+            ledger.Claim("player", 5);
+            // The player reconnects (client 9) before the host noticed client 5 dropped.
+            Assert.AreEqual((ulong?)5, ledger.Claim("player", 9), "Caller must disconnect the stale connection");
+            Assert.AreEqual(ReleaseResult.TakenOver, ledger.Release("player", 5, new PlayerSnapshot { Points = 3000 }),
+                "The stale connection's progress goes to the new connection, not into storage");
+            Assert.AreEqual(0, ledger.StoredCount);
+            Assert.IsTrue(ledger.TryGetHolder("player", out var holder) && holder == 9);
+            Assert.AreEqual(ReleaseResult.Stored, ledger.Release("player", 9, null));
+            Assert.IsFalse(ledger.IsHeld("player"));
         }
 
         [Test]
@@ -387,6 +478,34 @@ namespace UZS.Tests
             for (int i = 0; i < 200; i++) if (limiter.TryFire(10.0 + i * 0.01, interval)) accepted++;
             Assert.LessOrEqual(accepted, 2.0 / (interval * UZS.Core.ShotValidation.FireIntervalTolerance) + FireRateLimiter.BurstShots + 1);
             Assert.GreaterOrEqual(accepted, 18);
+        }
+
+        [Test]
+        public void LateJoinersGetCatchUpPoints()
+        {
+            Assert.AreEqual(GameInfo.StartingPoints, LateJoinRules.StartingPoints(1));
+            Assert.Greater(LateJoinRules.StartingPoints(10), 5000);
+            Assert.AreEqual(LateJoinRules.MaxStartingPoints, LateJoinRules.StartingPoints(200));
+        }
+
+        [Test]
+        public void PowerUpsDropRarelyAndAreCapped()
+        {
+            Assert.AreEqual(PowerUpType.None, PowerUpRules.RollDrop(0.5, 0.1, 0, false));
+            Assert.AreNotEqual(PowerUpType.None, PowerUpRules.RollDrop(0.0, 0.1, 0, false));
+            Assert.AreEqual(PowerUpType.None, PowerUpRules.RollDrop(0.0, 0.1, PowerUpRules.MaxDropsPerRound, false), "Per-round cap");
+            Assert.AreEqual(PowerUpType.None, PowerUpRules.RollDrop(0.0, 0.1, 0, true), "One drop at a time");
+            var seen = new HashSet<PowerUpType>();
+            for (double pick = 0; pick < 1; pick += 0.05) seen.Add(PowerUpRules.RollDrop(0.0, pick, 0, false));
+            CollectionAssert.AreEquivalent(PowerUpRules.All, seen);
+        }
+
+        [Test]
+        public void ZombieReachIsVerticallyLimited()
+        {
+            Assert.IsTrue(ZombieRules.CanReach(1.53f, 0f), "Car roof is not a safe spot");
+            Assert.IsFalse(ZombieRules.CanReach(3.2f, 0f), "Unreachable ledge");
+            Assert.IsFalse(ZombieRules.CanReach(-6f, 0f), "Floor below");
         }
 
         [Test]

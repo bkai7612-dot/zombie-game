@@ -34,6 +34,7 @@ namespace UZS.Gameplay
         private readonly NetworkVariable<ZombieSpeed> speed = new NetworkVariable<ZombieSpeed>(ZombieSpeed.Walk);
         private readonly NetworkVariable<byte> variant = new NetworkVariable<byte>(0);
         private readonly NetworkVariable<bool> dead = new NetworkVariable<bool>(false);
+        private readonly NetworkVariable<bool> emerging = new NetworkVariable<bool>(true);
 
         public bool IsDead => dead.Value;
         public ZombieSpeed Speed => speed.Value;
@@ -50,6 +51,8 @@ namespace UZS.Gameplay
         private float despawnTimer = -1f;
         private Vector3 lastProgressPos;
         private float stuckTimer;
+        private float emergeTimer = ZombieRules.EmergeSeconds;
+        private float unreachableTimer;
         private ZombieSpeed pendingSpeed;
         private byte pendingVariant;
 
@@ -58,6 +61,7 @@ namespace UZS.Gameplay
         private Vector3 lastPos;
         private float groanTimer;
         private float attackAnim;
+        private float emergeVisual;
 
         public void ServerConfigure(RoundDirector owner, float hp, float dmg, ZombieSpeed tier, byte look)
         {
@@ -136,6 +140,14 @@ namespace UZS.Gameplay
                 return;
             }
             LagCompensation.Record(this);
+            if (emergeTimer > 0f)
+            {
+                // Climbing out of the ground: visible and shootable, but not moving or attacking yet.
+                emergeTimer -= Time.deltaTime;
+                if (agent != null && agent.isOnNavMesh) agent.isStopped = true;
+                if (emergeTimer <= 0f) emerging.Value = false;
+                return;
+            }
             ServerThink(Time.deltaTime);
         }
 
@@ -163,7 +175,7 @@ namespace UZS.Gameplay
             attackCooldown -= dt;
             if (target != null)
             {
-                float dist = Vector3.Distance(transform.position, target.transform.position);
+                float dist = HorizontalDistance(target);
                 if (dist < ZombieRules.AttackRange + 1f)
                 {
                     var look = target.transform.position - transform.position;
@@ -177,15 +189,25 @@ namespace UZS.Gameplay
                     windup -= dt;
                     if (windup < 0f)
                     {
-                        if (dist <= ZombieRules.AttackRange + 0.4f && target.Life == LifeState.Alive) target.ServerTakeDamage(damage, transform.position);
+                        if (dist <= ZombieRules.AttackRange + 0.4f && target.Life == LifeState.Alive && CanHit(target))
+                            target.ServerTakeDamage(damage, transform.position);
                         attackCooldown = ZombieRules.AttackCooldown;
                     }
                 }
-                else if (attackCooldown <= 0f && dist <= ZombieRules.AttackRange && target.Life == LifeState.Alive)
+                else if (attackCooldown <= 0f && dist <= ZombieRules.AttackRange && target.Life == LifeState.Alive && CanHit(target))
                 {
                     windup = ZombieRules.AttackWindup;
                     AttackRpc();
                 }
+            }
+
+            // Target unreachable (e.g. standing somewhere the navmesh can't get to): recycle instead of idling forever.
+            bool partial = target != null && !agent.pathPending && agent.pathStatus != NavMeshPathStatus.PathComplete;
+            unreachableTimer = partial && HorizontalDistance(target) > ZombieRules.AttackRange + 1f ? unreachableTimer + dt : 0f;
+            if (unreachableTimer > ZombieRules.UnreachableSeconds)
+            {
+                Recycle();
+                return;
             }
 
             // Stuck detection: no progress for a long time while far from everyone -> back to the pool.
@@ -199,6 +221,20 @@ namespace UZS.Gameplay
                 stuckTimer += dt;
                 if (stuckTimer > ZombieRules.StuckSeconds && NearestPlayerDistance() > ZombieRules.StuckDistance) Recycle();
             }
+        }
+
+        private float HorizontalDistance(PlayerAvatar p)
+        {
+            var d = p.transform.position - transform.position;
+            d.y = 0f;
+            return d.magnitude;
+        }
+
+        /// <summary>Attacks need the target within vertical reach and a clear line (no hitting through walls or fences).</summary>
+        private bool CanHit(PlayerAvatar p)
+        {
+            if (!ZombieRules.CanReach(p.transform.position.y, transform.position.y)) return false;
+            return Ballistics.ClearLine(transform.position + Vector3.up * 1.3f, p.transform.position + Vector3.up * 1.0f);
         }
 
         private PlayerAvatar FindTarget()
@@ -237,14 +273,30 @@ namespace UZS.Gameplay
         public bool ServerTakeDamage(float amount, PlayerAvatar attacker, bool headshot, bool melee)
         {
             if (!IsServer || IsDead || amount <= 0f) return false;
+            var match = MatchState.Instance;
+            if (match != null && match.InstaKillActive) amount = health;
             health -= amount;
             if (health > 0f) return false;
 
+            Die();
+            if (attacker != null) attacker.ServerRecordKill(headshot, melee);
+            if (match != null) match.ServerOnZombieKilled(transform.position);
+            return true;
+        }
+
+        /// <summary>Nuke power-up: dies without kill credit or drops.</summary>
+        public void ServerNuke()
+        {
+            if (!IsServer || IsDead) return;
+            Die();
+        }
+
+        private void Die()
+        {
             dead.Value = true;
+            emerging.Value = false;
             despawnTimer = 2.5f;
             if (agent != null && agent.isOnNavMesh) agent.isStopped = true;
-            if (attacker != null) attacker.ServerRecordKill(headshot, melee);
-            return true;
         }
 
         [Rpc(SendTo.ClientsAndHost)]
@@ -263,7 +315,8 @@ namespace UZS.Gameplay
             float velocity = (transform.position - lastPos).magnitude / dt;
             lastPos = transform.position;
             attackAnim = Mathf.Max(0f, attackAnim - dt * 2f);
-            model.Animate(velocity, attackAnim, speed.Value);
+            emergeVisual = emerging.Value ? Mathf.Min(1f, emergeVisual + dt / ZombieRules.EmergeSeconds) : 1f;
+            model.Animate(velocity, attackAnim, speed.Value, emergeVisual);
 
             if (IsDead) return;
             groanTimer -= dt;

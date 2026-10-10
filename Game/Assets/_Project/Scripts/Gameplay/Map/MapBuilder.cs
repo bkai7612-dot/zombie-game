@@ -13,6 +13,7 @@ namespace UZS.Gameplay
         public readonly List<DoorView> Doors = new List<DoorView>();
         public BoxView Box;
         public UfoView Ufo;
+        public PowerUpView PowerUp;
         public Bounds NavBounds;
     }
 
@@ -47,6 +48,7 @@ namespace UZS.Gameplay
             foreach (var d in MapCatalog.Doors) map.Doors.Add(BuildDoor(dyn, d));
             foreach (var s in MapCatalog.Stations) BuildStation(dyn, s);
             map.Box = BuildBox(dyn);
+            map.PowerUp = Geo.Group(dyn, "PowerUp").AddComponent<PowerUpView>();
 
             map.NavBounds = new Bounds(new Vector3(9f, -1f, -5f), new Vector3(110f, 16f, 104f));
             StaticBatchingUtility.Combine(map.Static.gameObject);
@@ -95,8 +97,12 @@ namespace UZS.Gameplay
             Geo.Span(t, "Ground_Suburb", new Vector3(-40, -0.5f, -26), new Vector3(20, 0, 40), Palette.Grass);
             Geo.Span(t, "Ground_Checkpoint", new Vector3(20, -0.5f, -18), new Vector3(58, 0, 40), Palette.Dirt);
             Geo.Span(t, "Ground_Lab", new Vector3(24, -0.5f, -44), new Vector3(58, 0, -18), Palette.LabFloor);
-            // Outer apron so the fog edge never shows a void.
-            Geo.Span(t, "Ground_Outer", new Vector3(-90, -0.62f, -90), new Vector3(110, -0.52f, 90), Palette.Dirt, false);
+            // Outer apron so the fog edge never shows a void. It leaves a hole over the underground hangar and
+            // ramp corridor (x -21..25, z -51..-23) so it never cuts through them or the saucer's launch shaft.
+            Geo.Span(t, "Ground_OuterN", new Vector3(-90, -0.62f, -23), new Vector3(110, -0.52f, 90), Palette.Dirt, false);
+            Geo.Span(t, "Ground_OuterS", new Vector3(-90, -0.62f, -90), new Vector3(110, -0.52f, -51), Palette.Dirt, false);
+            Geo.Span(t, "Ground_OuterW", new Vector3(-90, -0.62f, -51), new Vector3(-21, -0.52f, -23), Palette.Dirt, false);
+            Geo.Span(t, "Ground_OuterE", new Vector3(25, -0.62f, -51), new Vector3(110, -0.52f, -23), Palette.Dirt, false);
         }
 
         private static void Lamp(Transform t, Vector3 pos, float height = 5.5f, float armDir = 1f)
@@ -552,7 +558,7 @@ namespace UZS.Gameplay
                 case InteractableKind.AmmoCrate:
                     Geo.Box(body, "Crate", new Vector3(0, 0.4f, -0.6f), new Vector3(1.4f, 0.8f, 0.8f), Palette.MilitaryGreen);
                     Geo.Box(body, "Stripe", new Vector3(0, 0.55f, -0.19f), new Vector3(1.4f, 0.12f, 0.02f), Palette.Hazard, false);
-                    Geo.Label(body, "AMMO " + PurchaseRules.AmmoCratePrice, new Vector3(0, 0.95f, -0.6f), 0f, 0.03f, new Color(1f, 0.9f, 0.4f));
+                    Geo.Label(body, "AMMO CRATE", new Vector3(0, 0.95f, -0.6f), 0f, 0.03f, new Color(1f, 0.9f, 0.4f));
                     Geo.PointLight(root, new Vector3(0, 1.6f, 0.3f), new Color(1f, 0.85f, 0.5f), 1f, 4f);
                     break;
                 case InteractableKind.UpgradeBench:

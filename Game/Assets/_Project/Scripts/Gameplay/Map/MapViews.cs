@@ -178,4 +178,62 @@ namespace UZS.Gameplay
             }
         }
     }
+
+    /// <summary>Floating power-up pickup; mirrors the single replicated drop slot in <see cref="MatchState"/>.</summary>
+    public sealed class PowerUpView : MonoBehaviour
+    {
+        private PowerUpType shown;
+        private GameObject model;
+        private Light glow;
+        private TextMesh label;
+
+        public void Sync(MatchState match)
+        {
+            var type = match != null ? match.DropType : PowerUpType.None;
+            if (type != shown)
+            {
+                if (model != null) Destroy(model);
+                model = null;
+                shown = type;
+                if (type != PowerUpType.None)
+                {
+                    model = Geo.Group(transform, "Drop").gameObject;
+                    var color = Color(type);
+                    var mat = Palette.Emit("power" + (int)type, color, color * 2.5f);
+                    switch (type)
+                    {
+                        case PowerUpType.MaxAmmo:
+                            Geo.Box(model.transform, "Box", Vector3.zero, new Vector3(0.5f, 0.35f, 0.35f), mat, false);
+                            break;
+                        case PowerUpType.Nuke:
+                            Geo.Sphere(model.transform, "Bomb", Vector3.zero, Vector3.one * 0.5f, mat);
+                            break;
+                        default:
+                            Geo.Box(model.transform, "Token", Vector3.zero, new Vector3(0.5f, 0.5f, 0.08f), mat, false);
+                            break;
+                    }
+                    glow = Geo.PointLight(model.transform, Vector3.zero, color, 2.5f, 5f);
+                    label = Geo.Label(model.transform, PowerUpRules.Name(type), new Vector3(0, 0.55f, 0), 0f, 0.03f, color);
+                    if (AudioManager.Instance != null) AudioManager.Instance.PlayAt(Sfx.BoxOffer, match.DropPosition, 1f);
+                }
+            }
+            if (model == null) return;
+            transform.position = match.DropPosition + Vector3.up * Mathf.Sin(Time.time * 3f) * 0.12f;
+            model.transform.localRotation = Quaternion.Euler(0f, Time.time * 120f, 0f);
+            if (glow != null) glow.intensity = 2f + Mathf.Sin(Time.time * 6f);
+            var cam = CameraDirector.Instance != null ? CameraDirector.Instance.transform : null;
+            if (label != null && cam != null) label.transform.rotation = Quaternion.LookRotation(label.transform.position - cam.position);
+        }
+
+        private static Color Color(PowerUpType t)
+        {
+            switch (t)
+            {
+                case PowerUpType.MaxAmmo: return new Color(1f, 0.8f, 0.2f);
+                case PowerUpType.InstaKill: return new Color(1f, 0.25f, 0.2f);
+                case PowerUpType.DoublePoints: return new Color(0.3f, 1f, 0.5f);
+                default: return new Color(1f, 0.55f, 0.1f);
+            }
+        }
+    }
 }

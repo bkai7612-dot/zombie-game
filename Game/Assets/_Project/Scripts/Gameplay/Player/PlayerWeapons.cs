@@ -142,19 +142,21 @@ namespace UZS.Gameplay
             active.Value = loadout.ActiveSlot;
         }
 
-        private bool CanAct()
+        /// <summary>Alive players can do everything; downed players get a "last stand" and can still shoot and reload.</summary>
+        private bool CanAct(bool allowDowned = false)
         {
             var match = MatchState.Instance;
-            return match != null && match.Phase == MatchPhase.Playing && avatar.Life == LifeState.Alive;
+            if (match == null || match.Phase != MatchPhase.Playing) return false;
+            return avatar.Life == LifeState.Alive || (allowDowned && avatar.Life == LifeState.Downed);
         }
 
         // ------------------------------------------------------------------ requests (owner -> authority)
 
         [Rpc(SendTo.Server, RequireOwnership = true)]
-        private void FireRpc(Vector3 origin, Vector3 direction, int slot, int seed)
+        private void FireRpc(Vector3 origin, Vector3 direction, int slot, int seed, bool aiming)
         {
             shotsProcessed.Value++;
-            if (!CanAct() || reloading.Value || slot != loadout.ActiveSlot) return;
+            if (!CanAct(true) || reloading.Value || slot != loadout.ActiveSlot) return;
             var weapon = loadout.Active;
             if (weapon.IsEmpty) return;
 
@@ -174,7 +176,7 @@ namespace UZS.Gameplay
             {
                 for (int i = 0; i < stats.Pellets; i++)
                 {
-                    var dir = Ballistics.Spread(direction, stats.SpreadDegrees, seed, i);
+                    var dir = Ballistics.Spread(direction, WeaponCatalog.Spread(weapon.Weapon, aiming), seed, i);
                     var hit = Ballistics.Trace(origin, dir, stats.Range);
                     if (hit.Hitbox == null || hit.Hitbox.Owner == null) continue;
                     float dmg = WeaponCatalog.DamageAt(weapon.Weapon, weapon.Upgraded, hit.Distance, hit.Hitbox.IsHead);
@@ -198,13 +200,13 @@ namespace UZS.Gameplay
                 else avatar.ServerRecordHit();
             }
             if (anyHit) HitConfirmRpc(anyKill, anyHead);
-            ShotFxRpc(origin, direction, seed, weapon.Weapon, weapon.Upgraded);
+            ShotFxRpc(origin, direction, seed, weapon.Weapon, weapon.Upgraded, aiming);
         }
 
         [Rpc(SendTo.Server, RequireOwnership = true)]
         private void ReloadRpc(int slot)
         {
-            if (!CanAct() || reloading.Value || slot != loadout.ActiveSlot || !loadout.CanReload(slot)) return;
+            if (!CanAct(true) || reloading.Value || slot != loadout.ActiveSlot || !loadout.CanReload(slot)) return;
             reloading.Value = true;
             reloadEnd = Time.timeAsDouble + WeaponCatalog.ReloadSeconds(loadout[slot].Weapon, (avatar.Perks & PerkId.Quickhands) != 0);
             ReloadFxRpc();
@@ -241,6 +243,7 @@ namespace UZS.Gameplay
                     float d = to.magnitude;
                     to.y = 0f;
                     if (d > MeleeRules.Range + 0.6f || Vector3.Angle(direction, to) > 70f) continue;
+                    if (!Ballistics.ClearLine(origin, c.bounds.center)) continue; // no knifing through walls
                     if (d < bestDist)
                     {
                         bestDist = d;
@@ -279,7 +282,8 @@ namespace UZS.Gameplay
         {
             localCooldown -= dt;
             localMeleeCooldown -= dt;
-            if (InputGate.Blocked || !CanAct()) return;
+            if (InputGate.Blocked || !CanAct(true)) return;
+            bool downed = avatar.Life == LifeState.Downed;
             var input = KeyboardMouseInput.Instance;
             var view = View;
 
@@ -292,7 +296,7 @@ namespace UZS.Gameplay
                 return;
             }
 
-            if (input.MeleePressed && localMeleeCooldown <= 0f)
+            if (input.MeleePressed && localMeleeCooldown <= 0f && !downed)
             {
                 localMeleeCooldown = MeleeRules.Cooldown;
                 MeleeRpc(avatar.Motor.AimDirection);
@@ -326,10 +330,11 @@ namespace UZS.Gameplay
             int seed = UnityEngine.Random.Range(int.MinValue, int.MaxValue);
             var origin = avatar.Motor.EyeWorldPosition;
             var dir = avatar.Motor.AimDirection;
+            bool aiming = input.AimHeld;
             shotsSent++;
-            FireRpc(origin, dir, view.ActiveSlot, seed);
+            FireRpc(origin, dir, view.ActiveSlot, seed, aiming);
             LocalFired?.Invoke(active.Weapon, active.Upgraded);
-            Effects.Shot(origin, dir, seed, active.Weapon, active.Upgraded, true);
+            Effects.Shot(origin, dir, seed, active.Weapon, active.Upgraded, aiming, true);
         }
 
         private void RequestReload(int slot)
@@ -348,9 +353,9 @@ namespace UZS.Gameplay
         }
 
         [Rpc(SendTo.NotOwner)]
-        private void ShotFxRpc(Vector3 origin, Vector3 direction, int seed, WeaponId weapon, bool upgraded)
+        private void ShotFxRpc(Vector3 origin, Vector3 direction, int seed, WeaponId weapon, bool upgraded, bool aiming)
         {
-            Effects.Shot(origin, direction, seed, weapon, upgraded, false);
+            Effects.Shot(origin, direction, seed, weapon, upgraded, aiming, false);
         }
 
         [Rpc(SendTo.ClientsAndHost)]

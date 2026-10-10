@@ -179,13 +179,19 @@ namespace UZS.Core
             return Math.Min(MaxZombiesPerRound, (int)Math.Ceiling(baseCount * factor));
         }
 
+        public const int SteepGrowthUntilRound = 25;
+
+        /// <summary>
+        /// Linear to round 9, then x1.1 per round to round 25, then x1.04 per round, frozen after round 55.
+        /// The gentler late slope keeps endless mode hard but playable (see tools/playtest).
+        /// </summary>
         public static float ZombieHealth(int round)
         {
             if (round < 1) round = 1;
             int r = Math.Min(round, HealthCapRound);
             if (r <= 9) return 120f + 90f * (r - 1);
             float hp = 120f + 90f * 8f;
-            for (int i = 10; i <= r; i++) hp *= 1.1f;
+            for (int i = 10; i <= r; i++) hp *= i <= SteepGrowthUntilRound ? 1.1f : 1.04f;
             return hp;
         }
 
@@ -236,12 +242,81 @@ namespace UZS.Core
     public static class ZombieRules
     {
         public const float AttackRange = 1.7f;
+        /// <summary>How far above a zombie's feet a target can stand and still be hit (car roofs are 1.5 m).</summary>
+        public const float MaxReachUp = 1.9f;
+        public const float MaxReachDown = 0.8f;
+        /// <summary>Zombies spawn at least this far from every player and out of sight when close.</summary>
+        public const float MinSpawnDistance = 10f;
+        public const float VisibleSpawnCheckDistance = 25f;
+        /// <summary>Freshly spawned zombies climb out of the ground before moving.</summary>
+        public const float EmergeSeconds = 1.2f;
+        /// <summary>A zombie whose path to its target is incomplete for this long is recycled.</summary>
+        public const float UnreachableSeconds = 10f;
+
+        public static bool CanReach(float targetFeetY, float zombieFeetY)
+        {
+            float dy = targetFeetY - zombieFeetY;
+            return dy <= MaxReachUp && dy >= -MaxReachDown;
+        }
         public const float AttackWindup = 0.55f;
         public const float AttackCooldown = 1.3f;
         public const float RepathInterval = 0.3f;
         /// <summary>A zombie that makes no progress for this long while far from every player is recycled.</summary>
         public const float StuckSeconds = 14f;
         public const float StuckDistance = 25f;
+    }
+
+    /// <summary>Catch-up for players who join a match already in progress.</summary>
+    public static class LateJoinRules
+    {
+        public const int MaxStartingPoints = 10000;
+
+        public static int StartingPoints(int round)
+        {
+            if (round <= 1) return GameInfo.StartingPoints;
+            return Math.Min(MaxStartingPoints, GameInfo.StartingPoints + 750 * (round - 1));
+        }
+    }
+
+    public enum PowerUpType : byte
+    {
+        None = 0,
+        MaxAmmo = 1,
+        InstaKill = 2,
+        DoublePoints = 3,
+        Nuke = 4,
+    }
+
+    /// <summary>Random drops from killed zombies that keep high rounds playable.</summary>
+    public static class PowerUpRules
+    {
+        public const double DropChance = 0.03;
+        public const int MaxDropsPerRound = 4;
+        public const float DurationSeconds = 20f;
+        public const float LifetimeSeconds = 25f;
+        public const float PickupRadius = 1.6f;
+        public const int NukePoints = 400;
+
+        public static readonly PowerUpType[] All = { PowerUpType.MaxAmmo, PowerUpType.InstaKill, PowerUpType.DoublePoints, PowerUpType.Nuke };
+
+        /// <summary>Returns the drop for a kill, or None. <paramref name="roll"/> and <paramref name="pick"/> are uniform [0,1).</summary>
+        public static PowerUpType RollDrop(double roll, double pick, int dropsThisRound, bool dropActive)
+        {
+            if (dropActive || dropsThisRound >= MaxDropsPerRound || roll >= DropChance) return PowerUpType.None;
+            return All[Math.Min(All.Length - 1, (int)(pick * All.Length))];
+        }
+
+        public static string Name(PowerUpType t)
+        {
+            switch (t)
+            {
+                case PowerUpType.MaxAmmo: return "MAX AMMO";
+                case PowerUpType.InstaKill: return "INSTA-KILL";
+                case PowerUpType.DoublePoints: return "DOUBLE POINTS";
+                case PowerUpType.Nuke: return "NUKE";
+                default: return string.Empty;
+            }
+        }
     }
 
     public enum MatchPhase : byte

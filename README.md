@@ -3,7 +3,7 @@
 An original first-person, round-based zombie survival game for Windows. It is built with Unity 6 LTS and Netcode for GameObjects, and you can play it solo or in 2–4 player online co-op.
 
 > **Status: pre-release source code. It has not been opened in Unity or built yet.**
-> Unity couldn't be installed in the environment where this code was written, because Unity's download servers were blocked. All code is type-checked against the real UnityEngine/UnityEditor reference assemblies, and the rules engine has 37 passing unit tests. But nobody has run the game, built a Windows `.exe` or tested multiplayer yet.
+> Unity couldn't be installed in the environment where this code was written, because Unity's download servers were blocked. All code is type-checked against the real UnityEngine/UnityEditor reference assemblies, and the rules engine has 46 passing unit tests. But nobody has run the game, built a Windows `.exe` or tested multiplayer yet.
 > [docs/STATUS.md](docs/STATUS.md) lists exactly what has and hasn't been verified, and what to do next.
 
 ## What's in it
@@ -16,8 +16,8 @@ An original first-person, round-based zombie survival game for Windows. It is bu
 | Weapons | Six types: M9 pistol (starter), K-9 SMG, Ranch pump shotgun, AR-7 rifle, DMR-40 marksman rifle, and the XR-1 plasma rifle (Supply Drop only). There's also a knife. All six can be upgraded at the Xeno-Forge. |
 | Economy | Points come from hits and kills. You spend them on wall buys, ammo, the 4 perk machines, ammo crates, the Supply Drop (a mystery box that relocates), upgrades, doors and the escape. |
 | Survivors | 10 original characters with names, roles and bios. Their models are placeholders built from primitives. |
-| Ending | Players pool points at the saucer launch console. Once it's funded, a 60-second hold-out starts, then everyone standing in the boarding circle escapes. If nobody funds it, the game is endless. |
-| Co-op | Players go down instead of dying, and teammates can revive them by holding Interact. Downed players bleed out after 30 seconds. Dead players respawn when the round ends. Reconnecting restores your progress once, so it can't be used to duplicate anything. |
+| Ending | Players pool points at the saucer launch console. Once it's funded, a 60-second hold-out starts, then boarding opens: the saucer leaves when everyone alive is aboard, or 15 seconds after the first player gets in. If nobody funds it, the game is endless, with power-up drops (Max Ammo, Insta-Kill, Double Points, Nuke) to keep high rounds playable. |
+| Co-op | Players go down instead of dying and can still shoot while teammates revive them by holding Interact. Downed players bleed out after 30 seconds. Dead players respawn next to a teammate when the round ends. Late joiners get catch-up points and spawn beside the team. Reconnecting restores your progress once, so it can't be used to duplicate anything. |
 | Presentation | Night lighting with moonlight, streetlights, emergency lights and alien lighting. All sound effects are generated in code. Menus, lobby, HUD, pause, settings (audio, mouse, FOV, resolution, window mode, V-Sync, FPS cap and key rebinding) and end screens are all included. |
 
 All art and audio are original placeholders created in code. No third-party assets are used.

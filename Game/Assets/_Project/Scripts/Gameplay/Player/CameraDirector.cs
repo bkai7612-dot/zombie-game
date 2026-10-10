@@ -115,7 +115,7 @@ namespace UZS.Gameplay
 
             fovCurrent = Mathf.Lerp(fovCurrent, targetFov, dt * 12f);
             Camera.fieldOfView = fovCurrent;
-            viewModel.SetVisible(FirstPerson && local != null && local.Life == LifeState.Alive);
+            viewModel.SetVisible(FirstPerson && local != null && (local.Life == LifeState.Alive || local.Life == LifeState.Downed));
         }
 
         private void Orbit(Vector3 center, float radius, float height, float speedDeg)

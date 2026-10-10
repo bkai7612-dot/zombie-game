@@ -35,6 +35,23 @@ namespace UZS.Gameplay
             return best;
         }
 
+        /// <summary>True if nothing solid (world geometry) lies between two points. Players and zombies don't block.</summary>
+        public static bool ClearLine(Vector3 from, Vector3 to)
+        {
+            var dir = to - from;
+            float dist = dir.magnitude;
+            if (dist < 0.01f) return true;
+            int n = Physics.RaycastNonAlloc(from, dir / dist, Buffer, dist, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++)
+            {
+                var c = Buffer[i].collider;
+                if (c.GetComponentInParent<PlayerAvatar>() != null) continue;
+                if (c.GetComponent<Hitbox>() != null) continue;
+                return false;
+            }
+            return true;
+        }
+
         /// <summary>Deterministic pellet/bullet spread shared by client visuals and authority damage.</summary>
         public static Vector3 Spread(Vector3 forward, float spreadDegrees, int seed, int pellet)
         {

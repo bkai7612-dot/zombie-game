@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Unity.Netcode;
 using UnityEngine;
 using UZS.Core;
@@ -30,6 +31,11 @@ namespace UZS.Gameplay
         private readonly NetworkVariable<float> escapeSecondsLeft = new NetworkVariable<float>(0f);
         private readonly NetworkVariable<bool> singlePlayer = new NetworkVariable<bool>(false);
         private readonly NetworkVariable<float> matchSeconds = new NetworkVariable<float>(0f);
+        private readonly NetworkVariable<float> boardingSecondsLeft = new NetworkVariable<float>(-1f);
+        private readonly NetworkVariable<PowerUpType> dropType = new NetworkVariable<PowerUpType>(PowerUpType.None);
+        private readonly NetworkVariable<Vector3> dropPosition = new NetworkVariable<Vector3>(Vector3.zero);
+        private readonly NetworkVariable<float> instaKillLeft = new NetworkVariable<float>(0f);
+        private readonly NetworkVariable<float> doublePointsLeft = new NetworkVariable<float>(0f);
 
         public MatchPhase Phase => phase.Value;
         public int Round => round.Value;
@@ -47,6 +53,14 @@ namespace UZS.Gameplay
         public bool IsSinglePlayer => singlePlayer.Value;
         public float MatchSeconds => matchSeconds.Value;
         public bool IsOver => Phase == MatchPhase.Victory || Phase == MatchPhase.Defeat;
+        /// <summary>Seconds left for teammates to board after the first survivor got in, or -1 if boarding hasn't started.</summary>
+        public float BoardingSecondsLeft => boardingSecondsLeft.Value;
+        public PowerUpType DropType => dropType.Value;
+        public Vector3 DropPosition => dropPosition.Value;
+        public float InstaKillLeft => instaKillLeft.Value;
+        public float DoublePointsLeft => doublePointsLeft.Value;
+        public bool InstaKillActive => instaKillLeft.Value > 0f;
+        public int PointsMultiplier => doublePointsLeft.Value > 0f ? 2 : 1;
 
         public RoundDirector Director { get; private set; }
 
@@ -57,6 +71,13 @@ namespace UZS.Gameplay
         private PlayerAvatar boxRoller;
         private float escapeTimer;
         private float statTimer;
+        private readonly EscapeState escape = new EscapeState();
+        private float boardingElapsed = -1f;
+        private int dropsThisRound;
+        private float dropLifetime;
+        private float instaTimer;
+        private float doubleTimer;
+        private float powerSyncTimer;
 
         private void Awake()
         {
@@ -104,6 +125,7 @@ namespace UZS.Gameplay
             {
                 if (map.Box != null) map.Box.Sync(this);
                 if (map.Ufo != null) map.Ufo.Sync(this);
+                if (map.PowerUp != null) map.PowerUp.Sync(this);
             }
             if (IsServer) ServerTick(Time.deltaTime);
         }
@@ -122,7 +144,8 @@ namespace UZS.Gameplay
         {
             if (!IsServer || Phase != MatchPhase.Lobby) return;
             phase.Value = MatchPhase.Playing;
-            escapeCost.Value = EscapeRules.CostFor(PlayerAvatar.All.Count);
+            escape.NotePlayers(PlayerAvatar.All.Count);
+            SyncEscape();
             int i = 0;
             foreach (var p in PlayerAvatar.All) p.ServerBeginMatch(i++);
             Director.ServerBegin();
@@ -132,19 +155,26 @@ namespace UZS.Gameplay
         /// <summary>Called by a late joiner's avatar so they can play immediately.</summary>
         public void ServerOnPlayerJoined(PlayerAvatar p)
         {
-            if (!escapeActive.Value) escapeCost.Value = Math.Max(escapeFunded.Value, EscapeRules.CostFor(PlayerAvatar.All.Count));
+            // Cost follows the peak player count: it can rise for a bigger team but never drops when people leave.
+            escape.NotePlayers(PlayerAvatar.All.Count);
+            SyncEscape();
         }
 
         /// <summary>Called after a departing avatar has been removed from <see cref="PlayerAvatar.All"/>.</summary>
         public void ServerOnPlayerLeft()
         {
-            if (boxRoller != null && boxRoller.NetworkObject == null) boxRoller = null;
-            if (!escapeActive.Value && Phase == MatchPhase.Playing)
-                escapeCost.Value = Math.Max(escapeFunded.Value, EscapeRules.CostFor(Math.Max(1, PlayerAvatar.All.Count)));
+            if (boxRoller != null && !boxRoller.IsSpawned) boxRoller = null;
+        }
+
+        private void SyncEscape()
+        {
+            escapeFunded.Value = escape.Funded;
+            escapeCost.Value = escape.Cost;
         }
 
         public void ServerSetRound(int value, int remaining, float intermission)
         {
+            if (value != round.Value) dropsThisRound = 0;
             round.Value = value;
             zombiesLeft.Value = remaining;
             intermissionLeft.Value = intermission;
@@ -163,6 +193,7 @@ namespace UZS.Gameplay
 
             TickBox(dt);
             TickEscape(dt);
+            TickPowerUps(dt);
             CheckDefeat();
         }
 
@@ -251,20 +282,14 @@ namespace UZS.Gameplay
                     break;
 
                 case QuoteKind.Contribute:
-                    if (!player.ServerSpend(quote.Cost)) return false;
-                    escapeFunded.Value += quote.Cost;
-                    if (escapeFunded.Value >= escapeCost.Value)
-                    {
-                        escapeActive.Value = true;
-                        escapeTimer = EscapeRules.CountdownSeconds;
-                        escapeSecondsLeft.Value = escapeTimer;
-                        AnnounceRpc("LAUNCH SEQUENCE ENGAGED - hold out until the saucer is ready, then get under it!", true);
-                    }
-                    else
-                    {
-                        AnnounceRpc($"{player.DisplayName} fed {quote.Cost} points into the saucer ({escapeFunded.Value}/{escapeCost.Value})", false);
-                    }
-                    break;
+                {
+                    int give = escape.Contribute(player.Points);
+                    if (give <= 0 || !player.ServerSpend(give)) return false;
+                    SyncEscape();
+                    if (!escape.FullyFunded)
+                        AnnounceRpc($"{player.DisplayName} fed {give} points into the saucer ({escape.Funded}/{escape.Cost})", false);
+                    break; // TickEscape starts the countdown as soon as funding covers the cost.
+                }
 
                 default:
                     return false;
@@ -286,7 +311,8 @@ namespace UZS.Gameplay
                     ResetBox();
                     return;
                 }
-                var weapon = MysteryBoxRules.Roll(rng, boxRoller.Weapons.View, boxUses);
+                bool canMove = MysteryBoxRules.CanRelocate(boxLocation.Value, MapCatalog.BoxLocations, MapCatalog.ActiveZones(doorMask.Value));
+                var weapon = MysteryBoxRules.Roll(rng, boxRoller.Weapons.View, boxUses, canMove);
                 boxUses++;
                 if (weapon == WeaponId.None)
                 {
@@ -309,7 +335,7 @@ namespace UZS.Gameplay
             }
             else if (boxState.Value == BoxState.Moving && boxTimer <= 0f)
             {
-                boxLocation.Value = MysteryBoxRules.NextLocation(rng, boxLocation.Value, MapCatalog.BoxLocations.Length);
+                boxLocation.Value = MysteryBoxRules.NextLocation(rng, boxLocation.Value, MapCatalog.BoxLocations, MapCatalog.ActiveZones(doorMask.Value));
                 boxUses = 0;
                 ResetBox();
             }
@@ -325,36 +351,126 @@ namespace UZS.Gameplay
 
         private void TickEscape(float dt)
         {
-            if (!escapeActive.Value) return;
+            if (!escapeActive.Value)
+            {
+                // Checked every tick (not only on contributions) so funding can never get stuck "engaged".
+                if (!escape.TryActivate()) return;
+                escapeActive.Value = true;
+                escapeTimer = EscapeRules.CountdownSeconds;
+                escapeSecondsLeft.Value = escapeTimer;
+                AnnounceRpc("LAUNCH SEQUENCE ENGAGED - hold out until the saucer is ready, then get under it!", true);
+                return;
+            }
             if (escapeTimer > 0f)
             {
                 escapeTimer -= dt;
                 float shown = Mathf.Max(0f, Mathf.Ceil(escapeTimer * 4f) / 4f);
                 if (!Mathf.Approximately(shown, escapeSecondsLeft.Value)) escapeSecondsLeft.Value = shown;
-                if (escapeTimer <= 0f) AnnounceRpc("THE SAUCER IS READY - get inside the green circle to escape!", true);
+                if (escapeTimer <= 0f) AnnounceRpc("THE SAUCER IS READY - everyone get inside the green circle!", true);
                 return;
             }
 
-            // Boarding open: everyone alive inside the circle escapes together.
-            var ufo = Geo.V(MapCatalog.UfoPosition);
-            bool anyAboard = false;
+            // Boarding: lift-off once every living survivor is aboard, or when the window after the first boarder ends.
+            int alive = 0, aboard = 0;
             foreach (var p in PlayerAvatar.All)
             {
                 if (p.Life != LifeState.Alive) continue;
-                var pos = p.transform.position;
-                if (Mathf.Abs(pos.y - ufo.y) < 3f && Vector2.Distance(new Vector2(pos.x, pos.z), new Vector2(ufo.x, ufo.z)) <= MapCatalog.BoardingRadius)
-                    anyAboard = true;
+                alive++;
+                if (IsAboard(p)) aboard++;
             }
-            if (!anyAboard) return;
+            if (aboard > 0 && boardingElapsed < 0f)
+            {
+                boardingElapsed = 0f;
+                if (aboard < alive) AnnounceRpc($"Boarding! The saucer leaves in {EscapeRules.BoardingWindowSeconds:0} seconds - get in!", true);
+            }
+            if (boardingElapsed >= 0f)
+            {
+                boardingElapsed += dt;
+                float left = Mathf.Max(0f, Mathf.Ceil(EscapeRules.BoardingWindowSeconds - boardingElapsed));
+                if (!Mathf.Approximately(left, boardingSecondsLeft.Value)) boardingSecondsLeft.Value = left;
+            }
+            if (!EscapeRules.ShouldLaunch(alive, aboard, Mathf.Max(0f, boardingElapsed))) return;
 
             foreach (var p in PlayerAvatar.All)
-            {
-                if (p.Life != LifeState.Alive) continue;
-                var pos = p.transform.position;
-                if (Mathf.Abs(pos.y - ufo.y) < 3f && Vector2.Distance(new Vector2(pos.x, pos.z), new Vector2(ufo.x, ufo.z)) <= MapCatalog.BoardingRadius)
-                    p.ServerEscape();
-            }
+                if (p.Life == LifeState.Alive && IsAboard(p)) p.ServerEscape();
             ServerEnd(MatchPhase.Victory);
+        }
+
+        public static bool IsAboard(PlayerAvatar p)
+        {
+            var ufo = Geo.V(MapCatalog.UfoPosition);
+            var pos = p.transform.position;
+            return Mathf.Abs(pos.y - ufo.y) < 3f &&
+                   Vector2.Distance(new Vector2(pos.x, pos.z), new Vector2(ufo.x, ufo.z)) <= MapCatalog.BoardingRadius;
+        }
+
+        // ------------------------------------------------------------------ power-ups (authority)
+
+        /// <summary>Called by a zombie when it is killed by a player (not when recycled or nuked).</summary>
+        public void ServerOnZombieKilled(Vector3 position)
+        {
+            if (Phase != MatchPhase.Playing) return;
+            var type = PowerUpRules.RollDrop(rng.NextDouble(), rng.NextDouble(), dropsThisRound, dropType.Value != PowerUpType.None);
+            if (type == PowerUpType.None) return;
+            dropsThisRound++;
+            dropType.Value = type;
+            dropPosition.Value = position + Vector3.up * 0.9f;
+            dropLifetime = PowerUpRules.LifetimeSeconds;
+        }
+
+        private void TickPowerUps(float dt)
+        {
+            if (dropType.Value != PowerUpType.None)
+            {
+                dropLifetime -= dt;
+                PlayerAvatar picker = null;
+                foreach (var p in PlayerAvatar.All)
+                {
+                    if (p.Life != LifeState.Alive) continue;
+                    if (Vector3.Distance(p.transform.position + Vector3.up * 0.9f, dropPosition.Value) <= PowerUpRules.PickupRadius)
+                    {
+                        picker = p;
+                        break;
+                    }
+                }
+                if (picker != null) ApplyPowerUp(dropType.Value, picker);
+                if (picker != null || dropLifetime <= 0f) dropType.Value = PowerUpType.None;
+            }
+
+            instaTimer = Mathf.Max(0f, instaTimer - dt);
+            doubleTimer = Mathf.Max(0f, doubleTimer - dt);
+            powerSyncTimer -= dt;
+            if (powerSyncTimer <= 0f || (instaTimer <= 0f && instaKillLeft.Value > 0f) || (doubleTimer <= 0f && doublePointsLeft.Value > 0f))
+            {
+                powerSyncTimer = 0.25f;
+                instaKillLeft.Value = instaTimer;
+                doublePointsLeft.Value = doubleTimer;
+            }
+        }
+
+        private void ApplyPowerUp(PowerUpType type, PlayerAvatar picker)
+        {
+            switch (type)
+            {
+                case PowerUpType.MaxAmmo:
+                    foreach (var p in PlayerAvatar.All)
+                        if (p.Life == LifeState.Alive || p.Life == LifeState.Downed) p.Weapons.ServerRefillAll();
+                    break;
+                case PowerUpType.InstaKill:
+                    instaTimer = PowerUpRules.DurationSeconds;
+                    instaKillLeft.Value = instaTimer;
+                    break;
+                case PowerUpType.DoublePoints:
+                    doubleTimer = PowerUpRules.DurationSeconds;
+                    doublePointsLeft.Value = doubleTimer;
+                    break;
+                case PowerUpType.Nuke:
+                    foreach (var z in ZombieAgent.All.ToArray()) z.ServerNuke();
+                    foreach (var p in PlayerAvatar.All)
+                        if (p.Life == LifeState.Alive || p.Life == LifeState.Downed) p.ServerAddPoints(PowerUpRules.NukePoints);
+                    break;
+            }
+            AnnounceRpc($"{PowerUpRules.Name(type)}!  ({picker.DisplayName})", true);
         }
 
         [Rpc(SendTo.ClientsAndHost)]

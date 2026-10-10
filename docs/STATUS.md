@@ -19,7 +19,7 @@ This file separates what has been **verified** from what is only **implemented i
 
 | What | How | Result |
 |---|---|---|
-| Core rules: weapons, loadout/ammo, prices, doors, zone graph, rounds, mystery box, escape funding, payload sanitising, approval rules, reconnect ledger, fire-rate limiter | `dotnet test` (NUnit). The same test file runs in Unity's Test Runner. | **37 / 37 passing** |
+| Core rules: weapons, loadout/ammo, prices, doors, zone graph, rounds, mystery box, escape funding, payload sanitising, approval rules, reconnect ledger, fire-rate limiter | `dotnet test` (NUnit). The same test file runs in Unity's Test Runner. | **46 / 46 passing** |
 | Every script assembly (Gameplay, UI, Assembly-CSharp/UGS, Editor) compiles | `tools/verify/run.sh`: C# 9, warnings treated as errors, built against real UnityEngine and UnityEditor reference assemblies | **Compiles cleanly** |
 | NGO API usage matches NGO 2.4.4 | The stubs in `tools/verify/UnityCompileCheck/Stubs/NetcodeStubs.cs` were copied from the 2.4.4 source | Compiles against them |
 
@@ -52,11 +52,32 @@ This file separates what has been **verified** from what is only **implemented i
 
 - **Host migration isn't supported.** If the host leaves, the session ends cleanly for everyone and they see a message saying so.
 - Players move on their own machines (owner-authoritative movement), so the host can only log implausible speed. See `docs/SECURITY.md`.
-- Downed players can't shoot.
 - Character choices can be duplicated (two players can pick the same survivor).
 - Matchmaking doesn't filter by game version. A client running a different version gets rejected when it tries to connect, with a clear message.
 - All art and audio are placeholders made in code. Lighting is real-time, not baked.
 - The UI uses Unity's IMGUI, which is functional but not final-quality.
+
+## Playtest (veteran-gamer agent, code trace + simulation)
+
+A playtester agent (`.claude/agents/veteran-gamer-playtester.md`) reviewed the game by tracing play sessions through the code and simulating balance with `tools/playtest/Sim` against the real rules. It found 1 blocker, 7 major, 4 minor and 4 polish issues. **All of them have been fixed** in code, and the rule-level fixes have unit tests. None of the fixes have been seen in a running game yet.
+
+| Finding | Fix |
+|---|---|
+| Escape could lock forever if a player left while it was part-funded | Cost uses the peak player count (never drops); the countdown starts on any tick where funding covers the cost (`EscapeState`) |
+| Quit, fund cheaply, rejoin exploit | Same peak-player cost |
+| First player into the circle ended the match for everyone | 15 s boarding window, or lift-off when all living players are aboard; per-player "Escaped" / "Left behind" |
+| Hold-out zombies spawned on the street above the hangar | `SpawnPlanner` ranks spawns by door-graph hops, then distance |
+| 600-point crate refilled upgraded weapons | Crate charges per-slot wall prices; upgraded refill is 2× normal (min 1000) |
+| Late joiners were dead weight | Catch-up points (500 + 750 per round, max 10,000), spawn beside a living teammate |
+| Hard difficulty wall / endless unplayable | Gentler health growth after round 25 (cap about 12.5k HP), power-up drops |
+| Zombies hit through walls; elevated "god spots"; knife through walls | Line-of-sight and vertical-reach checks for zombie attacks; line-of-sight check for the knife; unreachable-target recycling |
+| Shotgun was a trap pick | 3.5° spread (was 6.5°), 26 damage per pellet |
+| Supply Drop moved behind locked doors | Relocates only into opened zones; plasma weight doubled |
+| Fast reconnect started fresh | New connection takes over the key, the stale one is disconnected and its progress handed over |
+| Respawn inside props | NavMesh and free-space search (`SpawnSpot`) |
+| Dirt apron cut through the ramp and launch shaft | Apron split around the hangar footprint |
+| UI cut off below 16:10, overlapping text, wrong swap key label, rounds-survived off by one | Widths clamp to the screen, feed moved, swap key read from settings, defeat counts completed rounds |
+| Aiming didn't help accuracy; zombies popped into view; downed players helpless | ADS halves spread; spawns skip visible points within 25 m and zombies climb out of the ground; last stand (shoot and reload while downed) |
 
 ## Your original prompt was cut off
 

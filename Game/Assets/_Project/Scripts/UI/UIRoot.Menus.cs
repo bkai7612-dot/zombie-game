@@ -155,7 +155,9 @@ namespace UZS.UI
         private void DrawCharacters(float w, float h, bool inLobby)
         {
             var s = GameSettings.Current;
-            float cardW = 330, cardH = 150, gap = 14;
+            // Cards shrink to fit narrow aspect ratios (4:3 / 5:4) instead of running off screen.
+            float gap = 14, cardH = 150;
+            float cardW = Mathf.Min(330f, (w - 40f - 4 * gap) / 5f);
             float total = 5 * cardW + 4 * gap;
             float x0 = w / 2 - total / 2, y0 = inLobby ? 420 : 250;
             for (int i = 0; i < CharacterCatalog.Count; i++)
@@ -310,7 +312,8 @@ namespace UZS.UI
             bool isHost = nm != null && nm.IsHost;
             GUI.Label(new Rect(0, 40, w, 80), "LOBBY  -  " + MapCatalog.MapName.ToUpperInvariant(), UISkin.Title);
 
-            var r = new Rect(w / 2 - 860, 140, 1720, 260);
+            float lw = Mathf.Min(1720f, w - 40f);
+            var r = new Rect(w / 2 - lw / 2, 140, lw, 260);
             GUI.Box(r, GUIContent.none, UISkin.Panel);
             float x = r.x + 30, y = r.y + 20;
             var session = OnlineServices.Session;
@@ -384,20 +387,28 @@ namespace UZS.UI
         {
             UISkin.Fill(new Rect(0, 0, w, h), new Color(0, 0, 0, 0.6f));
             bool win = match.Phase == MatchPhase.Victory;
-            UISkin.Shadowed(new Rect(0, 120, w, 100), win ? "ESCAPED" : "GAME OVER", UISkin.Title, win ? UISkin.Alien : UISkin.Accent);
+            bool iEscaped = PlayerAvatar.Local != null && PlayerAvatar.Local.Life == LifeState.Escaped;
+            string title = !win ? "GAME OVER" : iEscaped ? "ESCAPED" : "LEFT BEHIND";
+            UISkin.Shadowed(new Rect(0, 120, w, 100), title, UISkin.Title, win && iEscaped ? UISkin.Alien : UISkin.Accent);
             int minutes = (int)(match.MatchSeconds / 60f), seconds = (int)(match.MatchSeconds % 60f);
-            GUI.Label(new Rect(0, 230, w, 40), $"Survived {match.Round} round{(match.Round == 1 ? "" : "s")}  -  {minutes}:{seconds:00}", UISkin.Center);
+            // On defeat the round you fell in doesn't count as survived.
+            int survived = win ? match.Round : Mathf.Max(0, match.Round - 1);
+            string sub = win && !iEscaped ? "Your team escaped without you. " : string.Empty;
+            GUI.Label(new Rect(0, 230, w, 40), $"{sub}Survived {survived} round{(survived == 1 ? "" : "s")}  -  {minutes}:{seconds:00}", UISkin.Center);
 
-            var r = new Rect(w / 2 - 700, 300, 1400, 80 + PlayerAvatar.All.Count * 48);
+            float sw = Mathf.Min(1400f, w - 40f);
+            var r = new Rect(w / 2 - sw / 2, 300, sw, 80 + PlayerAvatar.All.Count * 48);
             GUI.Box(r, GUIContent.none, UISkin.Panel);
-            ScoreboardRows(r);
+            ScoreboardRows(r, match);
 
             if (GUI.Button(new Rect(w / 2 - 200, r.yMax + 40, 400, 70), "RETURN TO MENU", UISkin.BigButton)) LeaveGame();
         }
 
-        private static void ScoreboardRows(Rect r)
+        private static void ScoreboardRows(Rect r, MatchState match)
         {
-            float[] cols = { 30, 470, 640, 800, 960, 1110, 1250 };
+            // Column positions are laid out for 1400 px and scaled to the panel width.
+            float k = r.width / 1400f;
+            float[] cols = { 30 * k, 470 * k, 640 * k, 800 * k, 960 * k, 1110 * k, 1250 * k };
             string[] heads = { "Survivor", "Points", "Kills", "Headshots", "Revives", "Downs", "Status" };
             float y = r.y + 20;
             for (int i = 0; i < heads.Length; i++) GUI.Label(new Rect(r.x + cols[i], y, 200, 36), "<b>" + heads[i] + "</b>", UISkin.Label);
@@ -405,9 +416,10 @@ namespace UZS.UI
             foreach (var p in PlayerAvatar.All)
             {
                 string status = p.Life == LifeState.Escaped ? "<color=#7CFF9A>Escaped</color>" :
+                    match.Phase == MatchPhase.Victory ? "<color=#FFB060>Left behind</color>" :
                     p.Life == LifeState.Alive ? "Alive" : p.Life == LifeState.Downed ? "<color=#FFB060>Downed</color>" : "<color=#FF6060>Dead</color>";
                 string[] vals = { p.DisplayName, p.Points.ToString(), p.Kills.ToString(), p.Headshots.ToString(), p.Revives.ToString(), p.Downs.ToString(), status };
-                for (int i = 0; i < vals.Length; i++) GUI.Label(new Rect(r.x + cols[i], y, i == 0 ? 430 : 160, 36), vals[i], UISkin.Label);
+                for (int i = 0; i < vals.Length; i++) GUI.Label(new Rect(r.x + cols[i], y, (i == 0 ? 430 : 160) * k, 36), vals[i], UISkin.Label);
                 y += 46;
             }
         }

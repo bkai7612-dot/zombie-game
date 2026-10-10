@@ -169,6 +169,33 @@ namespace UZS.Core
             return active;
         }
 
+        /// <summary>
+        /// Number of unlocked doors to cross from <paramref name="fromZone"/> to each zone (int.MaxValue if unreachable).
+        /// Used instead of straight-line distance because the hangar lies directly under Main Street.
+        /// </summary>
+        public static int[] ZoneHops(int fromZone, ulong unlockedDoorMask)
+        {
+            var hops = new int[Zones.Length];
+            for (int i = 0; i < hops.Length; i++) hops[i] = int.MaxValue;
+            if (fromZone < 0 || fromZone >= Zones.Length) return hops;
+            var queue = new Queue<int>();
+            hops[fromZone] = 0;
+            queue.Enqueue(fromZone);
+            while (queue.Count > 0)
+            {
+                int z = queue.Dequeue();
+                foreach (var d in Doors)
+                {
+                    if ((unlockedDoorMask & (1UL << d.Id)) == 0) continue;
+                    int other = d.ZoneA == z ? d.ZoneB : (d.ZoneB == z ? d.ZoneA : -1);
+                    if (other < 0 || hops[other] != int.MaxValue) continue;
+                    hops[other] = hops[z] + 1;
+                    queue.Enqueue(other);
+                }
+            }
+            return hops;
+        }
+
         public static int ZoneAt(float x, float y, float z)
         {
             // Hangar sits below Main Street, so disambiguate by height first.

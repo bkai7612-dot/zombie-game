@@ -51,9 +51,10 @@ namespace UZS.Gameplay
             capsule.radius = 0.32f;
             bodyGo.gameObject.AddComponent<Hitbox>().Owner = owner;
 
-            var headGo = Geo.Group(m.Hitboxes, "Head", new Vector3(0, 1.78f * height, 0.04f)).transform;
+            // Head sphere overlaps the top of the body capsule so there is no gap at the neck.
+            var headGo = Geo.Group(m.Hitboxes, "Head", new Vector3(0, 1.72f * height, 0.04f)).transform;
             var sphere = headGo.gameObject.AddComponent<SphereCollider>();
-            sphere.radius = 0.2f;
+            sphere.radius = 0.22f;
             var hb = headGo.gameObject.AddComponent<Hitbox>();
             hb.Owner = owner;
             hb.IsHead = true;
@@ -67,7 +68,7 @@ namespace UZS.Gameplay
             return p;
         }
 
-        public void Animate(float velocity, float attack, ZombieSpeed tier)
+        public void Animate(float velocity, float attack, ZombieSpeed tier, float emerge = 1f)
         {
             if (deadT >= 0f)
             {
@@ -76,6 +77,9 @@ namespace UZS.Gameplay
                 Root.localPosition = new Vector3(0f, 0.15f * deadT, 0f);
                 return;
             }
+
+            // Rising out of the ground when freshly spawned.
+            Root.localPosition = new Vector3(0f, -1.7f * (1f - emerge), 0f);
 
             float rate = tier == ZombieSpeed.Walk ? 4.5f : (tier == ZombieSpeed.Run ? 9f : 12f);
             float moving = Mathf.Clamp01(velocity / 1.5f);

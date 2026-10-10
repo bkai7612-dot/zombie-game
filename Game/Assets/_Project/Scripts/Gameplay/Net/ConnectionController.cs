@@ -213,8 +213,10 @@ namespace UZS.Gameplay
                 response.Reason = ApprovalRules.Describe(result);
                 return;
             }
-            var spawn = MapCatalog.PlayerSpawns[connected % MapCatalog.PlayerSpawns.Length];
-            response.Position = Geo.V(spawn) + Vector3.up * 0.2f;
+            // Late joiners appear next to a living teammate instead of alone on the start street.
+            response.Position = phase == MatchPhase.Playing
+                ? SpawnSpot.NearLivingTeammate(connected)
+                : Geo.V(MapCatalog.PlayerSpawns[connected % MapCatalog.PlayerSpawns.Length]) + Vector3.up * 0.2f;
             response.Rotation = Quaternion.Euler(0f, 90f, 0f);
             pendingPayloads[request.ClientNetworkId] = payload;
         }

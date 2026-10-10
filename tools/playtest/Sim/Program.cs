@@ -20,9 +20,8 @@ internal static class Program
         StkTable();
         PerZombieEconomy();
         Difficulty();
-        Economy(1, crateRefillsUpgraded: true);
-        Economy(4, crateRefillsUpgraded: true);
         Economy(1, crateRefillsUpgraded: false);
+        Economy(4, crateRefillsUpgraded: false);
         StarterArea();
         Box();
         Spawns();
@@ -131,13 +130,13 @@ internal static class Program
     private static int RefillPrice(WeaponId w, bool up)
     {
         var s = WeaponCatalog.Get(w);
-        if (up) return WeaponCatalog.UpgradedAmmoPrice;
-        return s.WallPrice > 0 ? s.AmmoPrice : PurchaseRules.AmmoCratePrice;
+        if (up) return WeaponCatalog.AmmoPriceFor(new WeaponSlot { Weapon = w, Upgraded = true });
+        return s.AmmoPrice;
     }
 
     private static void PerZombieEconomy()
     {
-        Console.WriteLine($"== Per zombie at {HitRate:P0} hit rate, {HeadRate:P0} headshots, {MinRange}-{MaxRange} m: shots fired / points earned / ammo cost (wall refill price pro-rata; crate 600 in brackets)");
+        Console.WriteLine($"== Per zombie at {HitRate:P0} hit rate, {HeadRate:P0} headshots, {MinRange}-{MaxRange} m: shots fired / points earned / ammo cost (wall refill price pro-rata; crate charges the same per-slot prices)");
         Console.WriteLine("   and SOLO round totals: shots needed vs one full load (mag+reserve), net points after paying for ammo at the wall.");
         foreach (var w in Guns)
             foreach (bool up in new[] { false, true })
@@ -244,7 +243,7 @@ internal static class Program
             ("ESCAPE funded", "escape", EscapeRules.CostFor(players), 0),
         };
         Console.WriteLine($"== Economy run: {players} player(s), {HitRate:P0} hits, {HeadRate:P0} headshots, buys in order, refills ammo when dry " +
-                          $"({(crateRefillsUpgraded ? "ammo crate 600 refills upgraded guns - as coded" : "upgraded refills forced to the 2500 wall price - as designed")})");
+                          "(upgraded refills cost 2x the normal ammo price; the crate charges the same per-slot prices)");
         var team = Enumerable.Range(0, players).Select(_ => new Sim()).ToList();
         ulong doors = 0;
         int step = 0;
@@ -358,13 +357,20 @@ internal static class Program
             if (gun != best || gun == null)
             {
                 // Try to refill the best gun.
-                int price = int.MaxValue;
-                if (crate && (!best.Up || crateRefillsUpgraded)) price = PurchaseRules.AmmoCratePrice;
-                if (WallZone.TryGetValue(best.W, out int zone) && active[zone]) price = Math.Min(price, RefillPrice(best.W, best.Up));
+                // Crate = same per-slot prices as the walls (PurchaseRules.AmmoCrate), minimum 600, refills everything.
+                int cratePrice = int.MaxValue;
+                if (crate)
+                {
+                    int sum = p.Guns.Where(g => g.Ammo < p.Cap(g)).Sum(g => RefillPrice(g.W, g.Up));
+                    if (sum > 0) cratePrice = Math.Max(PurchaseRules.AmmoCrateMinimum, sum);
+                }
+                int wallPrice = WallZone.TryGetValue(best.W, out int zone) && active[zone] ? RefillPrice(best.W, best.Up) : int.MaxValue;
+                bool useCrate = cratePrice <= wallPrice;
+                int price = Math.Min(cratePrice, wallPrice);
                 if (price != int.MaxValue && p.Points >= price)
                 {
                     p.Points -= price; p.AmmoSpent += price;
-                    if (price == PurchaseRules.AmmoCratePrice) foreach (var g in p.Guns) g.Ammo = p.Cap(g); else best.Ammo = p.Cap(best);
+                    if (useCrate) foreach (var g in p.Guns) g.Ammo = p.Cap(g); else best.Ammo = p.Cap(best);
                     continue;
                 }
             }
@@ -445,7 +451,7 @@ internal static class Program
         {
             var rng = new Random(99);
             int trials = 200000;
-            long paid = 0, moves = 0, plasmaFirst = 0, rollsTotal = 0;
+            long paid = 0, moves = 0, rollsTotal = 0;
             for (int t = 0; t < trials; t++)
             {
                 var l = new Loadout();
@@ -472,7 +478,7 @@ internal static class Program
     // ------------------------------------------------------------------ spawn placement
     private static void Spawns()
     {
-        Console.WriteLine("== Spawn choice with every door open: the 4 nearest spawn points by straight-line distance (RoundDirector.TrySpawn) vs walking route");
+        Console.WriteLine("== Spawn choice with every door open: SpawnPlanner's top 4 (zone hops, then distance) vs walking route");
         var spots = new (string name, V3 pos)[]
         {
             ("start street", new V3(-10, 0, 0)), ("corner store SMG", new V3(-4, 0, -18)), ("box in House A", new V3(-24, 0, -16)),
@@ -481,20 +487,14 @@ internal static class Program
         ulong all = 0b11111;
         foreach (var (name, pos) in spots)
         {
-            var cands = new List<(float d, V3 p, int zone)>();
-            for (int z = 0; z < MapCatalog.Zones.Length; z++)
-                foreach (var sp in MapCatalog.Zones[z].ZombieSpawns)
-                {
-                    float d = MapCatalog.Distance(sp, pos.X, pos.Y, pos.Z);
-                    if (d >= 6f) cands.Add((d, sp, z));
-                }
-            var pick = cands.OrderBy(c => c.d).Take(4).ToList();
+            // Same planner the host uses (RoundDirector.TrySpawn -> SpawnPlanner.Rank), before the line-of-sight filter.
+            var pick = SpawnPlanner.Rank(new[] { pos }, all, ZombieRules.MinSpawnDistance).Take(4).ToList();
             int myZone = MapCatalog.ZoneAt(pos.X, pos.Y, pos.Z);
             Console.Write($"{name,-18}(zone {myZone}): ");
             foreach (var c in pick)
             {
-                double walk = PathLength(c.p, c.zone, pos, myZone);
-                Console.Write($" z{c.zone} {c.d,4:0}m line/{walk,4:0}m walk ({walk / RoundRules.MoveSpeed(ZombieSpeed.Walk),3:0}s walker);");
+                double walk = PathLength(c.Position, c.Zone, pos, myZone);
+                Console.Write($" z{c.Zone} {c.Distance,4:0}m line/{walk,4:0}m walk ({walk / RoundRules.MoveSpeed(ZombieSpeed.Walk),3:0}s walker);");
             }
             Console.WriteLine();
         }

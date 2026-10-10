@@ -42,9 +42,10 @@ Run with two separate application instances. Do it once on one PC (`-uzsprofile 
 | 5 | Points match on both screens after hits, kills and purchases | |
 | 6 | A door opened by one player opens for both, zombies path through it, and a late joiner sees it open | |
 | 7 | Both buy wall weapons and use them, and ammo counts stay correct | |
-| 8 | One player goes down and the other revives them (hold F for 3 s) | |
+| 8 | One player goes down (and can still shoot), and the other revives them (hold F for 3 s) | |
 | 9 | A round completes and the next starts with more zombies | |
-| 10 | The escape is funded together (contributions from both add up), the countdown runs, both stand in the circle and both escape | |
+| 10 | The escape is funded together (contributions from both add up), the countdown runs, one boards, the 15 s boarding timer shows, the other boards and both escape; a player who stays outside is shown as Left behind | |
+| 10b | A player leaves while the escape is part-funded: the cost doesn't drop and the rest can still finish funding | |
 | 11 | A client quits mid-round: the host continues and the client rejoins with the same points (once) | |
 | 12 | The host quits: the client gets the "session ended" message and returns to the menu | |
 | 13 | A client with a different version is refused with the version message | |
