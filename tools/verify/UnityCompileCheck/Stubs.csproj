@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>VerifyStubs</AssemblyName></PropertyGroup>
+  <ItemGroup><Compile Include="Stubs/*.cs" /></ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Mirrors Unity's Assembly-CSharp: scripts outside any asmdef (the UGS adapter). -->
+  <PropertyGroup><AssemblyName>Assembly-CSharp</AssemblyName></PropertyGroup>
+  <ItemGroup><Compile Include="$(Src)OnlineUgs/**/*.cs" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Core.csproj" />
+    <ProjectReference Include="Gameplay.csproj" />
+    <ProjectReference Include="Stubs.csproj" />
+  </ItemGroup>
+</Project>

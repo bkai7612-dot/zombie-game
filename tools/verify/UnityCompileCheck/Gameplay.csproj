@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>UZS.Gameplay</AssemblyName></PropertyGroup>
+  <ItemGroup><Compile Include="$(Src)Gameplay/**/*.cs" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Core.csproj" />
+    <ProjectReference Include="Stubs.csproj" />
+  </ItemGroup>
+</Project>

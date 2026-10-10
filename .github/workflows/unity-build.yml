@@ -1,0 +1,63 @@
+name: Unity tests + Windows build
+
+# Needs a Unity licence in repository secrets (see docs/RELEASE.md):
+#   UNITY_LICENSE (contents of a .ulf file)  - or UNITY_SERIAL for Pro/Plus -
+#   UNITY_EMAIL, UNITY_PASSWORD
+# Runs manually, or on version tags (v*), which also attach the ZIP to a GitHub Release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: Game/Library
+          key: Library-${{ hashFiles('Game/Packages/manifest.json', 'Game/ProjectSettings/ProjectVersion.txt') }}
+          restore-keys: Library-
+
+      - name: Generate project assets (prefabs, scene, settings)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: Game
+          targetPlatform: StandaloneWindows64
+          buildMethod: UZS.EditorTools.BuildScript.BuildWindowsFromCommandLine
+          allowDirtyBuild: true
+
+      - name: EditMode + PlayMode tests (includes the end-to-end smoke test)
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: Game
+          testMode: all
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            Game/Builds/*.zip
+            Game/Builds/*.sha256
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Game/Builds/*.zip
+            Game/Builds/*.sha256

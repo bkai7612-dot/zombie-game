@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- PlayMode tests use UnityEngine.TestRunner (not on NuGet); only NUnit + engine APIs are checked here. -->
+  <PropertyGroup><AssemblyName>UZS.Tests.PlayMode</AssemblyName></PropertyGroup>
+  <ItemGroup><Compile Include="$(Src)../Tests/PlayMode/**/*.cs" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <ProjectReference Include="Core.csproj" />
+    <ProjectReference Include="Gameplay.csproj" />
+    <ProjectReference Include="Stubs.csproj" />
+  </ItemGroup>
+</Project>

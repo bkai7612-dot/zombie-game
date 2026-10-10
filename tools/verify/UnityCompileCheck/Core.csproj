@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>UZS.Core</AssemblyName></PropertyGroup>
+  <ItemGroup><Compile Include="$(Src)Core/**/*.cs" /></ItemGroup>
+</Project>

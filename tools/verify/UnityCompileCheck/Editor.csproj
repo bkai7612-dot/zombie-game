@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>UZS.Editor</AssemblyName></PropertyGroup>
+  <ItemGroup><Compile Include="$(Src)Editor/**/*.cs" /></ItemGroup>
+  <ItemGroup>
+    <Reference Include="$(Refs)editor/UnityEditor.dll" Private="false" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <ProjectReference Include="Core.csproj" />
+    <ProjectReference Include="Gameplay.csproj" />
+    <ProjectReference Include="UI.csproj" />
+    <ProjectReference Include="Stubs.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,23 @@
+# Unity
+/Game/[Ll]ibrary/
+/Game/[Tt]emp/
+/Game/[Oo]bj/
+/Game/[Bb]uild/
+/Game/[Bb]uilds/
+/Game/[Ll]ogs/
+/Game/[Uu]ser[Ss]ettings/
+/Game/MemoryCaptures/
+/Game/*.csproj
+/Game/*.sln
+/Game/*.slnx
+/Game/.vs/
+/Game/.idea/
+/Game/Packages/packages-lock.json.bak
+*.pidb.meta
+*.pdb.meta
+crashlytics-build.properties
+
+# Verification tooling
+/tools/verify/**/bin/
+/tools/verify/**/obj/
+/tools/verify/UnityCompileCheck/refs/

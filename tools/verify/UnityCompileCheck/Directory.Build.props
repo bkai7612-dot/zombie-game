@@ -1,0 +1,22 @@
+<Project>
+  <!-- Shared settings for the compile-only verification projects (mirror Unity 6: C# 9, warnings as errors). -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/$(MSBuildProjectName)/</BaseOutputPath>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CS0649: Unity assigns [SerializeField] fields via serialization; the Unity compiler does not report these. -->
+    <NoWarn>CS0436;CS0649;MSB3277</NoWarn>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <Src>$(MSBuildThisFileDirectory)../../../Game/Assets/_Project/Scripts/</Src>
+    <Refs>$(MSBuildThisFileDirectory)refs/</Refs>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="$(Refs)engine/*.dll" Private="false" />
+  </ItemGroup>
+</Project>

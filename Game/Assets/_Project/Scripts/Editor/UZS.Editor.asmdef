@@ -1,0 +1,21 @@
+{
+    "name": "UZS.Editor",
+    "rootNamespace": "UZS.EditorTools",
+    "references": [
+        "UZS.Core",
+        "UZS.Gameplay",
+        "UZS.UI",
+        "Unity.Netcode.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
